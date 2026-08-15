@@ -26,8 +26,9 @@
 #'   The last column is the table's own index; the leading columns are the
 #'   foreign key into its parent.
 #' @param method Synthesis method applied per variable unless overridden.
-#' @param constraints Optional cross-table constraints / rules. Not enforced yet
-#'   (roadmap Phase 4); a message is emitted if supplied.
+#' @param constraints Optional cross-table constraints / rules. Constraint
+#'   enforcement currently applies to single-table [synth()] only; a message is
+#'   emitted if supplied here.
 #' @param tuning A [synth_control()] object.
 #' @param privacy `NULL` for Track A, or a [dp_control()] object for Track B.
 #' @param m Number of synthetic dataset collections to produce.
@@ -86,7 +87,8 @@ synth_linked <- function(tables,
          call. = FALSE)
   }
   if (!is.null(constraints)) {
-    message("`constraints` are not enforced yet (Phase 4); ignoring them.")
+    message("`constraints` are not enforced for linked synthesis yet; ignoring ",
+            "them. (Single-table synth() enforces rule() constraints.)")
   }
   for (t in names(tables)) validate_structure(structures[[t]])
 

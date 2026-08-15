@@ -26,11 +26,11 @@ resolve_methods <- function(method, per_var, cols) {
       m[common] <- per_var[common]
     }
   }
-  supported <- c("cart", "sample")
+  supported <- list_methods()
   bad <- setdiff(unique(m), supported)
   if (length(bad)) {
     stop(sprintf(
-      "unsupported method(s): %s (supported: %s).",
+      "unsupported method(s): %s (registered: %s).",
       paste(bad, collapse = ", "), paste(supported, collapse = ", ")
     ), call. = FALSE)
   }
@@ -151,16 +151,18 @@ draw_from_leaves <- function(y, tr_leaf, syn_leaf) {
 
 # Fit a CART model of y on the given predictor frame. Returns everything
 # apply-time needs (the tree, the training target, per-row leaf ids, and the
-# training frame for factor-level alignment). `proper` bootstraps the training
-# rows once, here, so the model is stable across every later apply.
-cart_fit <- function(y, xtrain, control) {
+# training frame for factor-level alignment). `bootstrap` resamples the training
+# rows once, here, so the model is stable across every later apply; it defaults
+# to `proper` (posterior-predictive approximation) but the forest turns it off
+# because bagging already supplies the resampling.
+cart_fit <- function(y, xtrain, control, bootstrap = isTRUE(control$proper)) {
   if (!requireNamespace("rpart", quietly = TRUE)) {
     stop("method = \"cart\" needs the 'rpart' package. install.packages(\"rpart\").",
          call. = FALSE)
   }
   xtrain <- prep_predictors(xtrain)
   yy <- y
-  if (isTRUE(control$proper)) {                # posterior-predictive approximation
+  if (isTRUE(bootstrap)) {                      # posterior-predictive approximation
     bi <- sample.int(length(y), length(y), replace = TRUE)
     yy <- y[bi]
     xtrain <- xtrain[bi, , drop = FALSE]
@@ -190,21 +192,11 @@ sample_draw <- function(y, n, proper = FALSE) {
   pool[sample.int(length(pool), n, replace = TRUE)]
 }
 
-# A per-variable synthesiser: a CART model when it has predictors, otherwise a
-# marginal sampler. `fit_var` builds one; `apply_var` runs it.
-fit_var <- function(y, xtrain, preds, method, control) {
-  if (method == "sample" || length(preds) == 0L) {
-    return(list(kind = "sample", pool = y))
-  }
-  list(kind = "cart", model = cart_fit(y, xtrain, control))
-}
-
-apply_var <- function(model, xsyn, n, control) {
-  if (model$kind == "sample") {
-    return(sample_draw(model$pool, n, proper = control$proper))
-  }
-  cart_apply(model$model, xsyn)
-}
+# A per-variable synthesiser is resolved from the method registry (see
+# methods.R): `fit_var` builds a fitted model (falling back to the marginal
+# sampler when a predictor-hungry method has no predictors), and `apply_var`
+# draws from it. Both live in methods.R so the registry is the single source of
+# truth for method dispatch.
 
 # ---------------------------------------------------------------------------
 # Column-role detection
@@ -226,20 +218,20 @@ subject_level_cols <- function(data, id, cols) {
 # ---------------------------------------------------------------------------
 
 # Synthesise `cols` sequentially at a given grain (`train` = real rows at that
-# grain, `syn` = the synthetic frame to fill). Returns `syn` with the new cols.
+# grain, `syn` = the synthetic frame to fill). Each variable is drawn from its
+# registered method, conditioning on the columns synthesised before it (subject
+# to any `predictor_matrix` restriction). Returns `syn` with the new cols.
 synth_sequence <- function(train, syn, cols, available, methods, control) {
-  n_syn <- nrow(syn)
+  n_syn  <- nrow(syn)
+  pm     <- control$predictor_matrix
+  smooth <- smoothing_targets(control, cols)
   for (v in cols) {
     y <- train[[v]]
-    if (length(available) == 0L) {
-      syn[[v]] <- sample_draw(y, n_syn, proper = control$proper)
-    } else {
-      syn[[v]] <- switch(
-        methods[[v]],
-        cart   = cart_draw(y, train[available], syn[available], control),
-        sample = sample_draw(y, n_syn, proper = control$proper)
-      )
-    }
+    preds <- allowed_predictors(pm, v, available)
+    model <- fit_var(y, train[preds], preds, methods[[v]], control)
+    val   <- apply_var(model, syn[preds], n_syn, control)
+    if (v %in% smooth) val <- smooth_draw(val, y)
+    syn[[v]] <- val
     available <- c(available, v)
   }
   syn
@@ -258,6 +250,20 @@ unit_lag <- function(x, ids) {
   x[idx]
 }
 
+# Assemble a predictor frame from an ordered vector of predictor names. Plain
+# names are pulled from `nonlag_df` at `rows`; names of the form ".lag_<v>" are
+# supplied by `lag_fun("<v>")`. Building the training and the generation frames
+# through this single assembler guarantees identical columns and column order,
+# which matters for the parametric (model-matrix) methods.
+assemble_frame <- function(pred, nonlag_df, rows, lag_fun = NULL) {
+  cols <- lapply(pred, function(p) {
+    if (startsWith(p, ".lag_")) lag_fun(sub("^\\.lag_", "", p))
+    else nonlag_df[[p]][rows]
+  })
+  as.data.frame(stats::setNames(cols, pred), stringsAsFactors = FALSE,
+                check.names = FALSE)
+}
+
 # Fill the time-varying columns of `syn` with an initial-state + Markov
 # transition model. For each variable we fit two models on the real data:
 #   * initial  — the first row of each unit, conditioned on baseline + structural
@@ -268,7 +274,9 @@ unit_lag <- function(x, ids) {
 # for position t are read from the already-synthesised rows at position t - 1.
 synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
                            methods, control) {
-  id <- st$id
+  id     <- st$id
+  pm     <- control$predictor_matrix
+  smooth <- smoothing_targets(control, time_cols)
 
   ## Real side: sort, positions, and lag-1 predictors.
   rdat <- data[order_rows(data, st), , drop = FALSE]
@@ -279,25 +287,36 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
   have_nonfirst <- any(nonfirst)
 
   lag_names <- paste0(".lag_", time_cols)
-  rlags <- as.data.frame(
-    stats::setNames(lapply(time_cols, function(v) unit_lag(rdat[[v]], rids)), lag_names),
-    stringsAsFactors = FALSE, check.names = FALSE
+  rlags <- stats::setNames(
+    lapply(time_cols, function(v) unit_lag(rdat[[v]], rids)), lag_names
   )
 
-  ## Fit initial + transition models, one per time-varying variable, in order.
+  ## Per-variable predictor sets (structural indices in `fixed_cols` are always
+  ## kept; baseline, earlier current-row and lag predictors honour any
+  ## predictor_matrix restriction). Stored so generation rebuilds the exact same
+  ## columns the model was fitted on.
+  init_pred <- stats::setNames(vector("list", length(time_cols)), time_cols)
+  tran_pred <- stats::setNames(vector("list", length(time_cols)), time_cols)
   init_models <- stats::setNames(vector("list", length(time_cols)), time_cols)
   tran_models <- stats::setNames(vector("list", length(time_cols)), time_cols)
+
   earlier <- character(0)
   for (v in time_cols) {
-    meth <- methods[[v]]
-    ipred <- c(subj_cols, fixed_cols, earlier)
-    init_models[[v]] <- fit_var(rdat[[v]][first],
-                                rdat[first, ipred, drop = FALSE],
-                                ipred, meth, control)
+    meth  <- methods[[v]]
+    subj_a    <- allowed_predictors(pm, v, subj_cols)
+    earlier_a <- allowed_predictors(pm, v, earlier)
+    lag_a     <- paste0(".lag_", allowed_predictors(pm, v, time_cols))
+    ipred <- c(subj_a, fixed_cols, earlier_a)
+    tpred <- c(ipred, lag_a)
+    init_pred[[v]] <- ipred
+    tran_pred[[v]] <- tpred
+
+    iframe <- assemble_frame(ipred, rdat, which(first))
+    init_models[[v]] <- fit_var(rdat[[v]][first], iframe, ipred, meth, control)
     if (have_nonfirst) {
-      tframe <- cbind(rdat[nonfirst, c(subj_cols, fixed_cols, earlier), drop = FALSE],
-                      rlags[nonfirst, , drop = FALSE])
-      tpred <- c(subj_cols, fixed_cols, earlier, lag_names)
+      rows_nf <- which(nonfirst)
+      tframe <- assemble_frame(tpred, rdat, rows_nf,
+                               lag_fun = function(w) rlags[[paste0(".lag_", w)]][rows_nf])
       tran_models[[v]] <- fit_var(rdat[[v]][nonfirst], tframe, tpred, meth, control)
     }
     earlier <- c(earlier, v)
@@ -314,23 +333,19 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
   for (t in seq_len(max(spos))) {
     rows_t <- which(spos == t)
     if (!length(rows_t)) next
-    earlier <- character(0)
     use_transition <- t > 1L && have_nonfirst
     for (v in time_cols) {
       if (use_transition) {
         model <- tran_models[[v]]
-        base <- syn[rows_t, c(subj_cols, fixed_cols, earlier), drop = FALSE]
-        lagvals <- stats::setNames(
-          lapply(time_cols, function(w) syn[[w]][prev_idx[rows_t]]), lag_names
-        )
-        xsyn <- cbind(base, as.data.frame(lagvals, stringsAsFactors = FALSE,
-                                          check.names = FALSE))
+        xsyn  <- assemble_frame(tran_pred[[v]], syn, rows_t,
+                                lag_fun = function(w) syn[[w]][prev_idx[rows_t]])
       } else {
         model <- init_models[[v]]
-        xsyn <- syn[rows_t, c(subj_cols, fixed_cols, earlier), drop = FALSE]
+        xsyn  <- assemble_frame(init_pred[[v]], syn, rows_t)
       }
-      syn[[v]][rows_t] <- apply_var(model, xsyn, length(rows_t), control)
-      earlier <- c(earlier, v)
+      val <- apply_var(model, xsyn, length(rows_t), control)
+      if (v %in% smooth) val <- smooth_draw(val, rdat[[v]])
+      syn[[v]][rows_t] <- val
     }
   }
   syn

@@ -1,5 +1,8 @@
 # Internal input-validation helpers. Not exported.
 
+# NULL-coalescing helper (base R gained `%||%` only in 4.4; we support >= 4.1).
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
 validate_control <- function(tuning) {
   if (!inherits(tuning, "synth_control")) {
     stop("`tuning` must be a synth_control() object.", call. = FALSE)

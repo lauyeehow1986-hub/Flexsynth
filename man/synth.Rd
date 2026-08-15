@@ -25,8 +25,9 @@ synth(
 \item{method}{Synthesis method, \code{"cart"} (default) or \code{"sample"}, applied per
 variable unless overridden in \code{tuning}.}
 
-\item{constraints}{Optional constraints / rules (temporal, logical, range).
-Not enforced yet (roadmap Phase 4); a message is emitted if supplied.}
+\item{constraints}{Optional \code{\link[=rule]{rule()}} (or list of rules) the synthetic data
+must satisfy. Enforced by rejection sampling at the unit grain (see
+\code{\link[=rule]{rule()}}); \code{constraint_max_tries} in \code{\link[=synth_control]{synth_control()}} bounds the effort.}
 
 \item{tuning}{A \code{\link[=synth_control]{synth_control()}} object.}
 
@@ -68,6 +69,11 @@ previous row within the unit (lag-1 predictors), so autocorrelation across
 visits is preserved. The number of rows per unit is drawn from the learned
 count distribution and the structural-index sequence is regenerated for each
 synthetic unit.
+
+Supplying \code{constraints} (see \code{\link[=rule]{rule()}}) keeps only synthetic units whose rows
+satisfy every rule, regenerating until enough valid units are collected — so
+logical and within-unit temporal constraints are honoured without breaking
+the nested structure.
 
 Passing \code{privacy = dp_control(...)} selects differentially private synthesis
 (Track B), which is a later roadmap phase.

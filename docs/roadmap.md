@@ -50,10 +50,20 @@ engine; Track B is the opt-in differentially private engine.
 - Future: multi-parent (non-tree) links, deeper-ancestor predictors, and
   covariate-conditioned child counts.
 
-## Phase 4 — methods, constraints, tuning
-- Full method set (forest, ctree, parametric, rank, custom via
-  `register_method()`); constraint/temporal-logic system; `synth_control()`
-  wired end to end.
+## Phase 4 — methods, constraints, tuning  *(done)*
+- [x] Extensible method registry with `register_method()` / `list_methods()`.
+      Built-ins: `sample`, `cart`, `forest` (bagged CART), `ctree` (partykit),
+      and the parametric numeric methods `norm` and `normrank`. Method / target
+      type compatibility is validated.
+- [x] Constraint / temporal-logic system: `rule()` (row and per-unit scope),
+      enforced by unit-grain rejection sampling in `synth()`, bounded by
+      `constraint_max_tries`.
+- [x] `synth_control()` wired end to end: `smoothing` (numeric kernel
+      smoothing), `predictor_matrix` (per-variable predictor restriction), and
+      `forest` hyperparameters (`ntree`, `mtry`).
+- Future: parametric categorical methods (e.g. multinomial/logistic) as
+  built-ins; constraint enforcement for linked multi-table synthesis (currently
+  single-table only); constraint-aware value repair instead of pure rejection.
 
 ## Phase 5 — diagnostics / utility / safety
 - `diagnose()` + plots; `disclosure_risk()` (replicated uniques,

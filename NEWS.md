@@ -32,3 +32,20 @@
   predictors), the own index and earlier child variables. Added `check_linkage()`
   to verify key uniqueness and the absence of orphan child rows, plus
   `as.list()` / `print()` methods for `synth_linked_result`.
+* **Phase 4 — methods, constraints and tuning.**
+    * **Method registry.** Synthesis methods are now an extensible registry.
+      Built-ins: `sample`, `cart`, `forest` (a bagged CART ensemble, no extra
+      dependency), `ctree` (conditional-inference trees, via `partykit`), and
+      the parametric numeric methods `norm` and `normrank` (rank-preserving).
+      `register_method()` adds custom methods by name; `list_methods()` lists
+      them. Numeric-only / categorical-only methods are validated against the
+      target type.
+    * **Constraints / temporal logic.** `rule()` declares a logical constraint,
+      either row-wise (`rule(dbp <= sbp)`) or per unit for temporal logic
+      (`rule(all(diff(los) >= 0), scope = "unit")`). `synth()` enforces
+      constraints by rejection sampling at the unit grain, so nested structure
+      is preserved; `constraint_max_tries` bounds the effort.
+    * **`synth_control()` wired end to end.** `smoothing` kernel-smooths numeric
+      draws (all numeric, or named variables); `predictor_matrix` restricts which
+      variables may predict each target; `forest` hyperparameters (`ntree`,
+      `mtry`) are honoured.

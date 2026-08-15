@@ -98,9 +98,8 @@ test_that("unsupported methods are rejected", {
                "unsupported method")
 })
 
-test_that("constraints emit a not-yet-enforced message", {
+test_that("an empty constraints list is a no-op", {
   df <- make_long()
-  expect_message(synth(df, structure = ~ id / visit, constraints = list(),
-                       seed = 1),
-                 "not enforced yet")
+  expect_silent(synth(df, structure = ~ id / visit, constraints = list(),
+                      seed = 1))
 })

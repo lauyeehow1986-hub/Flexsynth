@@ -29,8 +29,9 @@ foreign key into its parent.}
 
 \item{method}{Synthesis method applied per variable unless overridden.}
 
-\item{constraints}{Optional cross-table constraints / rules. Not enforced yet
-(roadmap Phase 4); a message is emitted if supplied.}
+\item{constraints}{Optional cross-table constraints / rules. Constraint
+enforcement currently applies to single-table \code{\link[=synth]{synth()}} only; a message is
+emitted if supplied here.}
 
 \item{tuning}{A \code{\link[=synth_control]{synth_control()}} object.}
 

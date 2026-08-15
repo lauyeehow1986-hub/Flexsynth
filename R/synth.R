@@ -25,6 +25,11 @@
 #' count distribution and the structural-index sequence is regenerated for each
 #' synthetic unit.
 #'
+#' Supplying `constraints` (see [rule()]) keeps only synthetic units whose rows
+#' satisfy every rule, regenerating until enough valid units are collected — so
+#' logical and within-unit temporal constraints are honoured without breaking
+#' the nested structure.
+#'
 #' Passing `privacy = dp_control(...)` selects differentially private synthesis
 #' (Track B), which is a later roadmap phase.
 #'
@@ -33,8 +38,9 @@
 #'   `~ id / visit`. The first term is the unit identifier.
 #' @param method Synthesis method, `"cart"` (default) or `"sample"`, applied per
 #'   variable unless overridden in `tuning`.
-#' @param constraints Optional constraints / rules (temporal, logical, range).
-#'   Not enforced yet (roadmap Phase 4); a message is emitted if supplied.
+#' @param constraints Optional [rule()] (or list of rules) the synthetic data
+#'   must satisfy. Enforced by rejection sampling at the unit grain (see
+#'   [rule()]); `constraint_max_tries` in [synth_control()] bounds the effort.
 #' @param tuning A [synth_control()] object.
 #' @param privacy `NULL` for Track A, or a [dp_control()] object for Track B.
 #' @param m Number of synthetic datasets to produce.
@@ -69,9 +75,7 @@ synth <- function(data,
                 "implemented yet (Phase 7). See CLAUDE.md roadmap."),
          call. = FALSE)
   }
-  if (!is.null(constraints)) {
-    message("`constraints` are not enforced yet (Phase 4); ignoring them.")
-  }
+  rules <- normalise_constraints(constraints, data)
 
   st <- parse_structure(structure, data)
   if (!is.null(seed)) set.seed(seed)
@@ -96,8 +100,12 @@ synth <- function(data,
   subj_cols <- subject_level_cols(data, st$id, synth_cols)
   time_cols <- setdiff(synth_cols, subj_cols)   # keeps synth_cols order
 
-  syns <- lapply(seq_len(m), function(i)
-    synthesise_once(data, st, subj_cols, time_cols, fixed_cols, methods, tuning))
+  gen_one <- function()
+    synthesise_once(data, st, subj_cols, time_cols, fixed_cols, methods, tuning)
+  syns <- lapply(seq_len(m), function(i) {
+    if (is.null(rules)) gen_one()
+    else apply_constraints(gen_one, st$id, rules, tuning)
+  })
   syn <- if (m == 1L) syns[[1L]] else syns
 
   new_synth_result(

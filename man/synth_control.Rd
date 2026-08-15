@@ -13,6 +13,7 @@ synth_control(
   k = NULL,
   cart = list(),
   forest = list(),
+  constraint_max_tries = 50L,
   parallel = FALSE
 )
 }
@@ -27,14 +28,20 @@ the engine derive a sensible default.}
 \item{method}{Optional per-variable method override; a single string applies
 globally. \code{NULL} uses the call-level \code{method}.}
 
-\item{smoothing}{Optional smoothing specification for numeric variables.}
+\item{smoothing}{Numeric-variable smoothing: \code{NULL} (none), \code{TRUE} /
+\code{"density"} (kernel-smooth every numeric draw), or a character vector of
+variable names to smooth.}
 
 \item{proper}{Logical; use proper (\code{TRUE}) vs improper (\code{FALSE}) synthesis.}
 
 \item{k}{Optional size of each synthetic dataset. \code{NULL} matches the input.}
 
 \item{cart, forest}{Named lists of hyperparameters passed to the CART / random
-forest backends.}
+forest backends. For \code{forest}, \code{ntree} (number of trees, default 10) and
+\code{mtry} (predictors tried per tree, default all) are recognised.}
+
+\item{constraint_max_tries}{Integer; how many times \code{\link[=synth]{synth()}} may regenerate
+while rejection-sampling to satisfy \code{constraints}. Defaults to 50.}
 
 \item{parallel}{Logical; enable parallel synthesis where supported.}
 }
