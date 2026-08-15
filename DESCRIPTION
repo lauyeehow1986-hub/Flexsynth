@@ -20,6 +20,7 @@ Depends: R (>= 4.1)
 Imports:
     graphics,
     grDevices,
+    parallel,
     stats,
     utils
 Suggests:

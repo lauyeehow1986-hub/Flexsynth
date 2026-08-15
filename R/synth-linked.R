@@ -95,8 +95,8 @@ synth_linked <- function(tables,
   hierarchy <- link_hierarchy(tables, structures, keys)
 
   if (!is.null(seed)) set.seed(seed)
-  syns <- lapply(seq_len(m),
-                 function(i) synth_linked_once(tables, hierarchy, method, tuning))
+  gen_fun <- function() synth_linked_once(tables, hierarchy, method, tuning)
+  syns <- run_replicates(m, gen_fun, tuning, seed)
   syn <- if (m == 1L) syns[[1L]] else syns
 
   new_synth_linked_result(

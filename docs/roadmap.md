@@ -79,8 +79,18 @@ engine; Track B is the opt-in differentially private engine.
       diagnostics that model the nested dependence explicitly rather than
       pooling rows.
 
-## Phase 6 — performance & extensibility
-- `data.table` fast-path behind the same API; parallelism; polish.
+## Phase 6 — performance & extensibility  *(done)*
+- [x] `data.table` fast-path behind the same API: `rbindlist`-based row-binding
+      for the skeleton and constraint-filtered units (identical results without
+      `data.table`; only speed changes). Subject-invariant detection rewritten as
+      a single vectorised pass instead of a per-column `tapply()` loop.
+- [x] Parallelism: `synth_control(parallel = ...)` (TRUE / integer workers)
+      spreads the `m` independent replicates over a PSOCK cluster in both
+      `synth()` and `synth_linked()`, with reproducible per-stream L'Ecuyer RNG
+      and a serial fallback. Serial (default) behaviour is unchanged.
+- Future: chunked / out-of-core synthesis for tables that exceed memory; a
+  data.table code path for the inner grouped draws (not just row-binding);
+  within-replicate parallelism for a single very large table.
 
 ## Phase 7 — Track B (differential privacy)
 - `dp_control()` end to end; **person-level** contribution bounding; a

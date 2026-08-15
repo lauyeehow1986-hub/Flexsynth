@@ -102,10 +102,9 @@ synth <- function(data,
 
   gen_one <- function()
     synthesise_once(data, st, subj_cols, time_cols, fixed_cols, methods, tuning)
-  syns <- lapply(seq_len(m), function(i) {
-    if (is.null(rules)) gen_one()
-    else apply_constraints(gen_one, st$id, rules, tuning)
-  })
+  gen_fun <- if (is.null(rules)) gen_one
+             else function() apply_constraints(gen_one, st$id, rules, tuning)
+  syns <- run_replicates(m, gen_fun, tuning, seed)
   syn <- if (m == 1L) syns[[1L]] else syns
 
   new_synth_result(

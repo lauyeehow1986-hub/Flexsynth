@@ -119,7 +119,7 @@ apply_constraints <- function(gen_one, id_col, rules, control) {
 
   valid <- valid[seq_len(target)]
   for (i in seq_along(valid)) valid[[i]][[id_col]] <- i
-  out <- do.call(rbind, valid)
+  out <- rbind_rows(valid)
   rownames(out) <- NULL
   out
 }

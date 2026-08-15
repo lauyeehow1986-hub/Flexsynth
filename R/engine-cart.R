@@ -88,7 +88,7 @@ synth_skeleton <- function(data, st, control) {
     block[[id]] <- j                                 # fresh sequential identifier
     parts[[j]] <- block
   }
-  skel <- do.call(rbind, parts)
+  skel <- rbind_rows(parts)
   if (!is.null(control$k) && nrow(skel) > control$k) {
     skel <- skel[seq_len(control$k), , drop = FALSE]
   }
@@ -206,11 +206,7 @@ sample_draw <- function(y, n, proper = FALSE) {
 # rather than time-varying)? Those are synthesised once per unit.
 subject_level_cols <- function(data, id, cols) {
   if (!length(cols)) return(character(0))
-  gid <- data[[id]]
-  keep <- vapply(cols, function(col) {
-    all(tapply(data[[col]], gid, function(v) length(unique(v)) == 1L))
-  }, logical(1))
-  cols[keep]
+  cols[constant_within(data, data[[id]], cols)]
 }
 
 # ---------------------------------------------------------------------------

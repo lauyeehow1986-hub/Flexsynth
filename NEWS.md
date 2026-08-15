@@ -66,3 +66,18 @@
       make residual risk visible.
     * **Vignettes.** Three vignettes (getting started, nested / longitudinal,
       and multi-table linked cardiac), built pandoc-free with `litedown`.
+* **Phase 6 — performance and extensibility.**
+    * **data.table fast-path.** When the Suggested `data.table` package is
+      installed, the synthetic skeleton and the constraint-filtered unit set are
+      row-bound with `data.table::rbindlist` instead of repeated
+      `do.call(rbind, ...)`, avoiding the quadratic cost of assembling thousands
+      of one-unit blocks. Behaviour is identical without `data.table`; only speed
+      changes. Subject-invariant column detection is now a single vectorised pass
+      rather than a per-column `tapply()` loop.
+    * **Parallel replicates.** `synth_control(parallel = ...)` is wired end to
+      end: `TRUE` uses all available workers and a positive integer sets an
+      explicit count. The `m` independent synthetic replicates are spread over a
+      PSOCK cluster in both `synth()` and `synth_linked()`, with independent
+      L'Ecuyer RNG streams so a parallel run is reproducible for a fixed
+      (`seed`, worker count). Serial synthesis (the default) is unchanged, and
+      the engine falls back to serial if a cluster cannot be started.

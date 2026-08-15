@@ -43,7 +43,13 @@ forest backends. For \code{forest}, \code{ntree} (number of trees, default 10) a
 \item{constraint_max_tries}{Integer; how many times \code{\link[=synth]{synth()}} may regenerate
 while rejection-sampling to satisfy \code{constraints}. Defaults to 50.}
 
-\item{parallel}{Logical; enable parallel synthesis where supported.}
+\item{parallel}{Controls parallel generation of the \code{m} synthetic replicates.
+\code{FALSE} (default) synthesises serially. \code{TRUE} uses all available workers
+(\code{getOption("mc.cores")}, else \code{\link[parallel:detectCores]{parallel::detectCores()}}); a positive
+integer sets an explicit worker count. Parallelism spreads the independent
+replicates over a cluster, so it only helps when \code{m > 1}. A parallel run is
+reproducible for a fixed (\code{seed}, worker count) via independent L'Ecuyer
+RNG streams, but its output differs from a serial run with the same seed.}
 }
 \value{
 An object of class \code{synth_control} (a validated list).

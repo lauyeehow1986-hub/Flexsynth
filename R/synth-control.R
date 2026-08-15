@@ -23,7 +23,13 @@
 #'   variable names to smooth.
 #' @param constraint_max_tries Integer; how many times [synth()] may regenerate
 #'   while rejection-sampling to satisfy `constraints`. Defaults to 50.
-#' @param parallel Logical; enable parallel synthesis where supported.
+#' @param parallel Controls parallel generation of the `m` synthetic replicates.
+#'   `FALSE` (default) synthesises serially. `TRUE` uses all available workers
+#'   (`getOption("mc.cores")`, else [parallel::detectCores()]); a positive
+#'   integer sets an explicit worker count. Parallelism spreads the independent
+#'   replicates over a cluster, so it only helps when `m > 1`. A parallel run is
+#'   reproducible for a fixed (`seed`, worker count) via independent L'Ecuyer
+#'   RNG streams, but its output differs from a serial run with the same seed.
 #'
 #' @return An object of class `synth_control` (a validated list).
 #' @export
@@ -64,9 +70,14 @@ synth_control <- function(visit_sequence = NULL,
       is.na(constraint_max_tries) || constraint_max_tries < 1) {
     stop("`constraint_max_tries` must be a single positive integer.", call. = FALSE)
   }
-  if (!is.logical(parallel) || length(parallel) != 1L || is.na(parallel)) {
-    stop("`parallel` must be a single TRUE/FALSE.", call. = FALSE)
+  ok_parallel <- length(parallel) == 1L && !is.na(parallel) &&
+    (is.logical(parallel) ||
+       (is.numeric(parallel) && parallel >= 1 && parallel == as.integer(parallel)))
+  if (!ok_parallel) {
+    stop("`parallel` must be a single TRUE/FALSE or a positive integer.",
+         call. = FALSE)
   }
+  if (is.numeric(parallel)) parallel <- as.integer(parallel)
 
   structure(
     list(
@@ -97,6 +108,9 @@ print.synth_control <- function(x, ...) {
   cat("  cart params      :", length(x$cart), "\n")
   cat("  forest params    :", length(x$forest), "\n")
   cat("  constraint tries :", x$constraint_max_tries, "\n")
-  cat("  parallel         :", x$parallel, "\n")
+  cat("  parallel         :",
+      if (isFALSE(x$parallel)) "serial"
+      else if (isTRUE(x$parallel)) "all workers"
+      else paste(x$parallel, "workers"), "\n")
   invisible(x)
 }
