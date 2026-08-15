@@ -1,5 +1,18 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: rigorous, accounted discretisation.** DP bin edges are no longer
+  read silently from the data range. `dp_control()` gains a `domain` argument
+  (default `"dp"`): numeric variables without a public range in `bounds` now have
+  their edges **estimated under differential privacy** (a clamp-free
+  exponential-mechanism quantile at each end), with the cost composed into the
+  reported (\eqn{\epsilon}, \eqn{\delta}) via a `domain_frac` budget slice
+  (default 10%). `domain = "public"` requires `bounds` for every numeric variable
+  and spends no budget on the domain; `domain = "data"` keeps the old, warned,
+  unaccounted behaviour for benchmarking only. In the rigorous modes a bare
+  `character` column is refused (pass categoricals as `factor`/`logical`, whose
+  levels are public). The accounting record and its print method now report how
+  the edges were chosen and what they cost. This closes the one data-dependent
+  step previously excluded from the DP accounting.
 * Phase 0 scaffold: package skeleton, MIT license, and CI (`R-CMD-check`).
 * Public API with settled signatures and input validation: `synth()`,
   `synth_linked()`, `synth_control()`, `dp_control()`.

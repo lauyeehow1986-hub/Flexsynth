@@ -17,12 +17,29 @@
 #' marginals. All noise calibration and composition is reported back on the
 #' result (see the accounting printed by [synth()]).
 #'
-#' Note on bin edges and category sets: unless `bounds` is supplied, numeric bin
-#' edges are taken from the data range and categorical domains from the observed
-#' levels. That is a small data-dependent step which is **not** included in the
-#' (\eqn{\epsilon}, \eqn{\delta}) accounting; supply `bounds` (and factor columns
-#' with their full `levels`) from public knowledge to make the release fully
-#' data-independent. A warning is emitted when edges are derived from the data.
+#' Where the bin edges come from matters, because reading them from the data (its
+#' min / max) is itself a data-dependent step that can leak an individual's
+#' presence. `domain` controls this:
+#' \describe{
+#'   \item{`"dp"` (default)}{Rigorous and automatic. Numeric variables named in
+#'     `bounds` use those public edges at no cost; any other numeric variable has
+#'     its working range **estimated under differential privacy** (a clamp-free
+#'     exponential-mechanism quantile at each end), and that estimation spends an
+#'     accounted slice `domain_frac` of the budget. The reported
+#'     (\eqn{\epsilon}, \eqn{\delta}) is therefore exact end to end — discretisation
+#'     adds no unaccounted leakage.}
+#'   \item{`"public"`}{Fully data-independent and free: every numeric variable
+#'     **must** be given a public range in `bounds` (an error is raised otherwise)
+#'     and no budget is spent on the domain. The recommended mode when public
+#'     ranges (codebook / physiological limits) are available.}
+#'   \item{`"data"`}{The non-rigorous legacy behaviour: bin edges are taken from
+#'     the data range with a warning, and that step is **excluded** from the
+#'     accounting. Kept only for benchmarking; do not use for a governed release.}
+#' }
+#' Categorical variables carry their domain in their type: `factor` and `logical`
+#' columns use their declared levels (public metadata, no leakage). In the `"dp"`
+#' and `"public"` modes a bare `character` column is refused — convert it to a
+#' `factor` with its full `levels` so the category set is public.
 #'
 #' @param epsilon Positive privacy-loss budget. Smaller = more private, less
 #'   utility.
@@ -46,8 +63,19 @@
 #'   moderate value usually gives the best correlation fidelity. Means and sums
 #'   are largely unaffected (bin contents are decoded uniformly within the bin).
 #' @param bounds Optional named list giving `c(lower, upper)` for numeric
-#'   variables, used as public, data-independent bin edges. Variables not named
-#'   fall back to the observed data range (with a warning).
+#'   variables, used as public, data-independent bin edges. How variables *not*
+#'   named here are handled depends on `domain`.
+#' @param domain How numeric bin edges are chosen for variables without a public
+#'   range in `bounds`: `"dp"` (default) estimates them under differential privacy
+#'   and accounts for the cost; `"public"` requires `bounds` for every numeric
+#'   variable (error otherwise) and spends no budget on the domain; `"data"` reads
+#'   them from the data range with a warning and *excludes* that step from the
+#'   accounting (non-rigorous; benchmarking only).
+#' @param domain_frac Fraction of the privacy budget spent estimating bin edges
+#'   under `domain = "dp"` (default `0.1`). Split evenly across the two
+#'   quantile queries per estimated variable and composed with the marginal
+#'   measurements, so the total spend is exactly (\eqn{\epsilon}, \eqn{\delta}).
+#'   Ignored unless some numeric variable actually needs estimating.
 #'
 #' @return An object of class `dp_control` (a validated list).
 #' @export
@@ -61,10 +89,13 @@ dp_control <- function(epsilon,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
                        bins = 12L,
-                       bounds = NULL) {
+                       bounds = NULL,
+                       domain = c("dp", "public", "data"),
+                       domain_frac = 0.1) {
   unit <- match.arg(unit)
   mechanism <- match.arg(mechanism)
   dependence <- match.arg(dependence)
+  domain <- match.arg(domain)
 
   if (missing(epsilon) || !is.numeric(epsilon) || length(epsilon) != 1L ||
       is.na(epsilon) || epsilon <= 0) {
@@ -101,6 +132,10 @@ dp_control <- function(epsilon,
            call. = FALSE)
     }
   }
+  if (!is.numeric(domain_frac) || length(domain_frac) != 1L ||
+      is.na(domain_frac) || domain_frac <= 0 || domain_frac >= 1) {
+    stop("`domain_frac` must be a single number in (0, 1).", call. = FALSE)
+  }
 
   structure(
     list(
@@ -112,7 +147,9 @@ dp_control <- function(epsilon,
       mechanism = mechanism,
       dependence = dependence,
       bins = as.integer(bins),
-      bounds = bounds
+      bounds = bounds,
+      domain = domain,
+      domain_frac = domain_frac
     ),
     class = "dp_control"
   )
@@ -127,6 +164,9 @@ print.dp_control <- function(x, ...) {
   cat("  mechanism :", x$mechanism, "\n")
   cat("  dependence:", x$dependence, "\n")
   cat("  bins      :", x$bins, "\n")
+  cat("  domain    :", x$domain,
+      if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),
+                                   " of budget for edges)") else "", "\n")
   cat("  max rows/person:",
       if (is.null(x$max_rows_per_person)) "1 (auto)" else x$max_rows_per_person, "\n")
   invisible(x)

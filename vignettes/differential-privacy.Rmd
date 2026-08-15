@@ -54,14 +54,30 @@ real$sbp <- round(0.6 * real$age + ifelse(real$smoker, 8, 0) + rnorm(n, 90, 10))
 head(real)
 ```
 
-### Supply public bounds
+### Where the bin edges come from
 
 The DP engine works over a **discrete grid**: numeric variables are cut into
-bins. Where those bin edges come from matters. If you let the engine read them
-from the data, that is a small data-dependent step that is *not* covered by the
-(\(\epsilon\), \(\delta\)) accounting — the engine warns you when this happens.
-For a clean, fully data-independent release, pass public ranges (from domain
-knowledge, a codebook, or physiological limits) via `bounds`:
+bins. Where those bin edges come from matters, because reading them straight from
+the data (its min and max) can betray an individual's presence — an outlier's
+exact value *is* the maximum. The `domain` argument controls this, and the
+default keeps the accounting honest without any work on your part:
+
+- `domain = "dp"` (default): numeric variables you name in `bounds` use those
+  public edges for free; any others have their working range **estimated under
+  differential privacy** and the cost is folded into the reported
+  (\(\epsilon\), \(\delta\)). Nothing leaks unaccounted.
+- `domain = "public"`: every numeric variable *must* have a public range in
+  `bounds` (an error otherwise); no budget is spent on the domain. Use this when
+  you have codebook or physiological limits.
+- `domain = "data"`: the old behaviour — edges read from the data with a warning,
+  *excluded* from the accounting. Benchmarking only.
+
+Categorical columns carry their domain in their type, so pass them as `factor`
+(or `logical`) — their levels are public metadata. A bare `character` column is
+refused in the rigorous modes.
+
+For a clean, fully data-independent release with **no** budget spent on the
+domain, pass public ranges via `bounds`:
 
 ```{r bounds}
 dp <- dp_control(
@@ -97,6 +113,22 @@ one-way marginals for every variable and (with the default
 `dependence = "tree"`) the pairwise marginals needed to learn a Chow-Liu
 dependency tree. The number of marginals, the per-cell noise scale, and — for the
 Gaussian mechanism — the zero-concentrated-DP \(\rho\) are all reported.
+
+### Or let the engine estimate them privately
+
+If you have no public ranges, the default `domain = "dp"` estimates each numeric
+variable's working range under DP — a clamp-free exponential-mechanism quantile
+at each end — and charges it to the budget (a small slice, `domain_frac`, default
+10%). No warning, and the reported (\(\epsilon\), \(\delta\)) is exact:
+
+```{r estimate}
+dp_auto <- dp_control(epsilon = 2, delta = 1e-6, mechanism = "gaussian")
+res_auto <- synth(real, structure = ~ id, privacy = dp_auto, seed = 1)
+res_auto$privacy
+```
+
+The accounting names the variables whose edges were estimated and the fraction of
+budget it took. The remaining budget pays for the marginals, exactly as before.
 
 ## Choices that matter
 
@@ -162,5 +194,8 @@ for (e in c(0.5, 2, 8)) {
   sampling would leak information the budget does not account for.
 
 Within those limits the guarantee is exact and reported. For anything labelled
-differentially private, keep the accounting record with the release, and prefer
-public `bounds` so the discretisation adds no unaccounted leakage.
+differentially private, keep the accounting record with the release. The
+discretisation adds no unaccounted leakage in either rigorous mode — supply
+public `bounds` (`domain = "public"`) to spend nothing on the domain, or let the
+default `domain = "dp"` estimate the edges privately and charge them to the
+budget.

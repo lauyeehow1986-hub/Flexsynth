@@ -151,15 +151,56 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   bounded <- dp_contribution_bound(data, id, cap)
   cdata <- bounded$data
 
-  dom <- dp_build_domain(cdata, vars, dp)
-  nbins <- vapply(vars, function(v) dom[[v]]$nbin, integer(1))
-  codes <- stats::setNames(
-    lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
+  # Classify columns and enforce the domain contract before spending budget.
+  is_num  <- vapply(vars, function(v) is.numeric(cdata[[v]]), logical(1))
+  is_char <- vapply(vars, function(v) is.character(cdata[[v]]), logical(1))
+  numeric_vars <- vars[is_num]
+  if (dp$domain %in% c("dp", "public") && any(is_char)) {
+    stop(sprintf(paste0(
+      "DP synthesis with domain = \"%s\" needs a public category set for %s: ",
+      "convert the character column(s) to factors (with their full `levels`), ",
+      "or use domain = \"data\" to read levels from the data (not accounted)."),
+      dp$domain, paste(vars[is_char], collapse = ", ")), call. = FALSE)
+  }
+  has_bound <- vapply(numeric_vars,
+                      function(v) !is.null(dp$bounds[[v]]), logical(1))
+  missing_bound <- numeric_vars[!has_bound]
+  if (dp$domain == "public" && length(missing_bound)) {
+    stop(sprintf(paste0(
+      "domain = \"public\" requires `bounds` for every numeric variable; ",
+      "missing: %s. Supply public ranges, or use the default domain = \"dp\" ",
+      "to estimate them privately."),
+      paste(missing_bound, collapse = ", ")), call. = FALSE)
+  }
 
   n_marginals <- length(vars) +
     if (dp$dependence == "tree" && length(vars) > 1L)
       length(vars) * (length(vars) - 1L) / 2L else 0L
-  calib <- dp_calibrate(dp, n_marginals, cap)
+
+  # Under domain = "dp", privately estimate bin edges for numeric variables that
+  # have no public bounds, spending an accounted `domain_frac` slice of budget.
+  est_vars <- if (dp$domain == "dp") missing_bound else character(0)
+  est_bounds <- NULL
+  marg_frac <- 1
+  domain_info <- list(mode = dp$domain, vars = character(0),
+                      eps_per_query = NA_real_, frac = 0)
+  if (length(est_vars) > 0L) {
+    n_dom <- 2L * length(est_vars)
+    eps_q <- dp_quantile_eps(dp, n_dom, dp$domain_frac)
+    est_bounds <- stats::setNames(
+      lapply(est_vars, function(v) dp_estimate_bounds(cdata[[v]], eps_q, cap)),
+      est_vars)
+    marg_frac <- 1 - dp$domain_frac
+    domain_info <- list(mode = dp$domain, vars = est_vars,
+                        eps_per_query = eps_q, frac = dp$domain_frac)
+  }
+
+  calib <- dp_calibrate(dp, n_marginals, cap, budget_frac = marg_frac)
+
+  dom <- dp_build_domain(cdata, vars, dp, est_bounds)
+  nbins <- vapply(vars, function(v) dom[[v]]$nbin, integer(1))
+  codes <- stats::setNames(
+    lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
 
   model <- dp_fit_model(codes, nbins, dp, calib)
   n_syn <- if (!is.null(tuning$k)) max(1L, as.integer(round(tuning$k)))
@@ -173,7 +214,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   syns <- lapply(seq_len(m), function(i) make_one())
   syn <- if (m == 1L) syns[[1L]] else syns
 
-  acct <- new_dp_accounting(dp, calib, cap, n_marginals, vars, bounded$dropped)
+  acct <- new_dp_accounting(dp, calib, cap, n_marginals, vars, bounded$dropped,
+                            domain_info)
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),

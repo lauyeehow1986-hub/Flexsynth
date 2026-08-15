@@ -29,26 +29,52 @@ zcdp_rho_for <- function(epsilon, delta) {
 # Calibrate the noise for a release of `n_marginals` marginals at sensitivity
 # `cap`. Returns a list describing the mechanism and the per-cell noise, plus a
 # closure `add_noise(counts)` that draws the calibrated noise for one histogram.
-dp_calibrate <- function(dp, n_marginals, cap) {
+#
+# `budget_frac` (in (0, 1]) is the share of the total budget the marginals may
+# spend; the remainder is reserved for DP domain estimation (see
+# `dp_quantile_eps()`). With the default `budget_frac = 1` the marginals get the
+# whole budget (no domain estimation). The split is exact: pure eps adds and zCDP
+# rho adds, so marginals + domain never exceed (eps, delta).
+dp_calibrate <- function(dp, n_marginals, cap, budget_frac = 1) {
   n_marginals <- as.integer(n_marginals)
   cap <- as.numeric(cap)
   eps <- dp$epsilon
   if (dp$mechanism == "laplace") {
+    # Marginals get budget_frac of the pure-eps budget.
+    eps_marg <- budget_frac * eps
     # Total L1 sensitivity of the concatenated release is n_marginals * cap.
-    scale <- (n_marginals * cap) / eps
+    scale <- (n_marginals * cap) / eps_marg
     add_noise <- function(counts)
       counts + rlaplace(length(counts), scale = scale)
     list(mechanism = "laplace", scale = scale, epsilon = eps, delta = 0,
          rho = NA_real_, n_marginals = n_marginals, cap = cap,
-         add_noise = add_noise)
+         budget_frac = budget_frac, add_noise = add_noise)
   } else {
-    rho <- zcdp_rho_for(eps, dp$delta)
-    sigma <- cap * sqrt(n_marginals / (2 * rho))
+    rho_total <- zcdp_rho_for(eps, dp$delta)
+    rho_marg <- budget_frac * rho_total          # marginals' share of zCDP rho
+    sigma <- cap * sqrt(n_marginals / (2 * rho_marg))
     add_noise <- function(counts)
       counts + stats::rnorm(length(counts), sd = sigma)
     list(mechanism = "gaussian", sigma = sigma, epsilon = eps, delta = dp$delta,
-         rho = rho, n_marginals = n_marginals, cap = cap,
-         add_noise = add_noise)
+         rho = rho_total, rho_marginals = rho_marg, n_marginals = n_marginals,
+         cap = cap, budget_frac = budget_frac, add_noise = add_noise)
+  }
+}
+
+# Per-query epsilon for the exponential-mechanism quantiles used to estimate bin
+# edges under DP, given `n_queries` such queries share a `budget_frac` slice of
+# the budget. For Laplace (pure eps) the slice is split evenly and adds. For
+# Gaussian we work in zCDP: allocate `budget_frac` of rho to the domain, split it
+# evenly, and invert the conservative pure-eps -> (eps^2 / 2)-zCDP bound
+# (eps_q = sqrt(2 * rho_per_query)); this never under-charges the true
+# (eps_q^2 / 8)-zCDP cost of a bounded-range exponential mechanism.
+dp_quantile_eps <- function(dp, n_queries, budget_frac) {
+  n_queries <- as.integer(n_queries)
+  if (dp$mechanism == "laplace") {
+    (budget_frac * dp$epsilon) / n_queries
+  } else {
+    rho_dom <- budget_frac * zcdp_rho_for(dp$epsilon, dp$delta)
+    sqrt(2 * (rho_dom / n_queries))
   }
 }
 
@@ -58,8 +84,13 @@ rlaplace <- function(n, scale) {
   -scale * sign(u) * log1p(-2 * abs(u))
 }
 
-# Accounting record attached to a DP synth_result$privacy slot.
-new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped) {
+# Accounting record attached to a DP synth_result$privacy slot. `domain`
+# describes how bin edges were chosen and, under DP estimation, what it cost:
+# a list with `mode`, the estimated variables, the per-query epsilon, and the
+# budget fraction reserved for it (0 when nothing was estimated).
+new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
+                              domain = list(mode = dp$domain, vars = character(0),
+                                            eps_per_query = NA_real_, frac = 0)) {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -72,7 +103,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped) {
       noise = if (calib$mechanism == "laplace") calib$scale else calib$sigma,
       rho = calib$rho,
       variables = variables,
-      rows_dropped = dropped
+      rows_dropped = dropped,
+      domain = domain
     ),
     class = "dp_accounting"
   )
@@ -95,5 +127,18 @@ print.dp_accounting <- function(x, ...) {
   cat("  row cap   :", x$cap, "per", x$unit,
       if (x$rows_dropped > 0) paste0("(", x$rows_dropped, " rows dropped by capping)") else "",
       "\n")
+  dm <- x$domain
+  if (!is.null(dm)) {
+    if (length(dm$vars) > 0) {
+      cat("  bin edges :", dm$mode, "- estimated under DP for",
+          paste(dm$vars, collapse = ", "),
+          paste0("(", signif(dm$frac, 3), " of budget)"), "\n")
+    } else if (identical(dm$mode, "data")) {
+      cat("  bin edges :", dm$mode,
+          "(from data range; NOT in the accounting)\n")
+    } else {
+      cat("  bin edges :", dm$mode, "(public bounds; no budget spent)\n")
+    }
+  }
   invisible(x)
 }

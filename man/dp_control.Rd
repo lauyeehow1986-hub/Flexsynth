@@ -12,7 +12,9 @@ dp_control(
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
   bins = 12L,
-  bounds = NULL
+  bounds = NULL,
+  domain = c("dp", "public", "data"),
+  domain_frac = 0.1
 )
 }
 \arguments{
@@ -45,8 +47,21 @@ moderate value usually gives the best correlation fidelity. Means and sums
 are largely unaffected (bin contents are decoded uniformly within the bin).}
 
 \item{bounds}{Optional named list giving \code{c(lower, upper)} for numeric
-variables, used as public, data-independent bin edges. Variables not named
-fall back to the observed data range (with a warning).}
+variables, used as public, data-independent bin edges. How variables \emph{not}
+named here are handled depends on \code{domain}.}
+
+\item{domain}{How numeric bin edges are chosen for variables without a public
+range in \code{bounds}: \code{"dp"} (default) estimates them under differential privacy
+and accounts for the cost; \code{"public"} requires \code{bounds} for every numeric
+variable (error otherwise) and spends no budget on the domain; \code{"data"} reads
+them from the data range with a warning and \emph{excludes} that step from the
+accounting (non-rigorous; benchmarking only).}
+
+\item{domain_frac}{Fraction of the privacy budget spent estimating bin edges
+under \code{domain = "dp"} (default \code{0.1}). Split evenly across the two
+quantile queries per estimated variable and composed with the marginal
+measurements, so the total spend is exactly (\eqn{\epsilon}, \eqn{\delta}).
+Ignored unless some numeric variable actually needs estimating.}
 }
 \value{
 An object of class \code{dp_control} (a validated list).
@@ -70,12 +85,29 @@ structure is retained; \code{dependence = "independent"} keeps only one-way
 marginals. All noise calibration and composition is reported back on the
 result (see the accounting printed by \code{\link[=synth]{synth()}}).
 
-Note on bin edges and category sets: unless \code{bounds} is supplied, numeric bin
-edges are taken from the data range and categorical domains from the observed
-levels. That is a small data-dependent step which is \strong{not} included in the
-(\eqn{\epsilon}, \eqn{\delta}) accounting; supply \code{bounds} (and factor columns
-with their full \code{levels}) from public knowledge to make the release fully
-data-independent. A warning is emitted when edges are derived from the data.
+Where the bin edges come from matters, because reading them from the data (its
+min / max) is itself a data-dependent step that can leak an individual's
+presence. \code{domain} controls this:
+\describe{
+\item{\code{"dp"} (default)}{Rigorous and automatic. Numeric variables named in
+\code{bounds} use those public edges at no cost; any other numeric variable has
+its working range \strong{estimated under differential privacy} (a clamp-free
+exponential-mechanism quantile at each end), and that estimation spends an
+accounted slice \code{domain_frac} of the budget. The reported
+(\eqn{\epsilon}, \eqn{\delta}) is therefore exact end to end — discretisation
+adds no unaccounted leakage.}
+\item{\code{"public"}}{Fully data-independent and free: every numeric variable
+\strong{must} be given a public range in \code{bounds} (an error is raised otherwise)
+and no budget is spent on the domain. The recommended mode when public
+ranges (codebook / physiological limits) are available.}
+\item{\code{"data"}}{The non-rigorous legacy behaviour: bin edges are taken from
+the data range with a warning, and that step is \strong{excluded} from the
+accounting. Kept only for benchmarking; do not use for a governed release.}
+}
+Categorical variables carry their domain in their type: \code{factor} and \code{logical}
+columns use their declared levels (public metadata, no leakage). In the \code{"dp"}
+and \code{"public"} modes a bare \code{character} column is refused — convert it to a
+\code{factor} with its full \code{levels} so the category set is public.
 }
 \examples{
 dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian")

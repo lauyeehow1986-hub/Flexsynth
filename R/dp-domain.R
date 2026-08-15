@@ -55,22 +55,65 @@ dp_domain_column <- function(v, nbin, bound = NULL) {
   }
 }
 
+# Estimate one quantile of `x` under the exponential mechanism, clamp-free: the
+# output is one of the observed values, chosen with probability proportional to
+# exp(eps_q * u / (2 * cap)) where the utility u = -|rank - target| favours the
+# value whose rank is closest to `prob * n`. This is eps_q-DP at person
+# sensitivity `cap` (adding / removing one person's <= cap rows shifts any rank
+# by at most cap). Using an inner quantile (small `prob`, or 1 - small) rather
+# than the exact extreme keeps a lone outlier from dominating the choice; values
+# beyond the returned edge are clamped into the end bin by dp_encode().
+dp_exp_quantile <- function(x, prob, eps_q, cap) {
+  x <- x[is.finite(x)]
+  n <- length(x)
+  if (n == 0L) return(NA_real_)
+  if (n == 1L) return(x[1L])
+  xs <- sort(x)
+  target <- prob * n
+  u <- -abs(seq_len(n) - target)              # rank utility per sorted value
+  logw <- (eps_q * u) / (2 * cap)
+  logw <- logw - max(logw)                    # stabilise before exp()
+  xs[sample.int(n, 1L, prob = exp(logw))]
+}
+
+# Inner tail probability used to estimate a numeric variable's working range
+# under DP. The 5th / 95th percentiles are robust to a single extreme record;
+# values outside are clamped into the end bins.
+DP_DOMAIN_ALPHA <- 0.05
+
+# DP-estimate public-style bin edges c(lo, hi) for one numeric variable, at a
+# per-query budget of `eps_q` (two queries: the lower and upper inner quantile).
+# Guarantees lo < hi so seq() produces valid edges.
+dp_estimate_bounds <- function(x, eps_q, cap) {
+  lo <- dp_exp_quantile(x, DP_DOMAIN_ALPHA, eps_q, cap)
+  hi <- dp_exp_quantile(x, 1 - DP_DOMAIN_ALPHA, eps_q, cap)
+  b <- sort(c(lo, hi))
+  if (!all(is.finite(b)) || b[1L] == b[2L]) {
+    lo <- if (is.finite(b[1L])) b[1L] else 0
+    b <- c(lo, lo + 1)
+  }
+  b
+}
+
 # Build the full domain (a named list of column-domain objects) for `vars`.
-# Emits a single warning if any bin edges / category sets are taken from the
-# data rather than supplied publicly (a step not covered by the DP accounting).
-dp_build_domain <- function(data, vars, dp) {
-  bounds <- dp$bounds
+# `est_bounds` supplies DP-estimated numeric ranges (from dp_estimate_bounds);
+# together with the public `dp$bounds` these cover every numeric variable in the
+# rigorous modes. A warning fires only in the legacy `domain = "data"` mode,
+# where some edges are still read from the data and left out of the accounting.
+dp_build_domain <- function(data, vars, dp, est_bounds = NULL) {
   dom <- stats::setNames(vector("list", length(vars)), vars)
   for (v in vars) {
-    dom[[v]] <- dp_domain_column(data[[v]], dp$bins, bounds[[v]])
+    bound <- dp$bounds[[v]]
+    if (is.null(bound)) bound <- est_bounds[[v]]
+    dom[[v]] <- dp_domain_column(data[[v]], dp$bins, bound)
   }
   derived <- vapply(dom, function(d) isTRUE(d$derived), logical(1))
   if (any(derived)) {
     warning(sprintf(
       paste0("DP: bin edges / category sets for %s were derived from the data. ",
              "These are not included in the (epsilon, delta) accounting; supply ",
-             "`bounds` (and factor levels) from public knowledge for a fully ",
-             "data-independent release."),
+             "`bounds` (and factor levels) from public knowledge, or use the ",
+             "default `domain = \"dp\"`, for a fully accounted release."),
       paste(names(dom)[derived], collapse = ", ")), call. = FALSE)
   }
   dom

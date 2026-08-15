@@ -109,9 +109,9 @@ engine; Track B is the opt-in differentially private engine.
   within-unit longitudinal structure under DP (e.g. DP Markov transitions);
   budget-efficient structure learning (measure structure cheaply, then only the
   chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection;
-  data-independent / DP-estimated bin edges so discretisation adds no
-  unaccounted leakage.
+  greedy degree>1 networks and AIM-style adaptive marginal selection.
+  (Data-independent / DP-estimated bin edges — the discretisation leakage — are
+  now done; see the post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -125,6 +125,14 @@ engine; Track B is the opt-in differentially private engine.
       (0/0/0) with vignettes built. The `--as-cran` NOTEs (new submission; a
       local no-pandoc note; a transient empty `NULL` directory created only by
       the `--as-cran` example driver, not by any package code) are documented.
-- Future: a data-independent / DP-estimated discretisation so Track B adds no
-  unaccounted leakage; the linked-data and longitudinal DP extensions listed
-  under Phase 7; and CRAN submission once a stable `0.1.0` API is tagged.
+- [x] Data-independent / DP-estimated discretisation so Track B adds no
+  unaccounted leakage. `dp_control(domain = ...)`: `"public"` (require `bounds`,
+  zero cost), `"dp"` (default; DP-estimate missing numeric edges via a clamp-free
+  exponential-mechanism quantile, cost composed into (\eqn{\epsilon},
+  \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
+  warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
+  rigorous modes.
+- Future: the linked-data and longitudinal DP extensions listed under Phase 7;
+  DP set-union for discovering `character` category sets under `domain = "dp"`
+  (currently public factor levels are required); and CRAN submission once a
+  stable `0.1.0` API is tagged.

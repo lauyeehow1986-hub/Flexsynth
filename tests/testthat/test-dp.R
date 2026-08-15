@@ -152,11 +152,99 @@ test_that("large epsilon and n preserves marginals (utility sanity)", {
   expect_equal(mean(syn$sex == "F"), mean(df$sex == "F"), tolerance = 0.05)
 })
 
-test_that("bin edges derived from data warn about the accounting caveat", {
+# ---- rigorous discretisation domain ---------------------------------------
+
+test_that("the default domain='dp' estimates edges without warning, epsilon exact", {
   df <- flat_data()
-  dp <- dp_control(epsilon = 2)                            # no bounds supplied
+  dp <- dp_control(epsilon = 2, delta = 1e-6, mechanism = "gaussian")
+  expect_equal(dp$domain, "dp")
+  expect_silent(res <- synth(df, structure = ~ id, privacy = dp, seed = 1))
+  # No public bounds -> age & sbp are DP-estimated; the total spend is still eps.
+  expect_equal(res$privacy$epsilon, 2)
+  expect_setequal(res$privacy$domain$vars, c("age", "sbp"))
+  expect_equal(res$privacy$domain$frac, 0.1)
+  expect_gt(res$privacy$domain$eps_per_query, 0)
+})
+
+test_that("domain='public' requires bounds for every numeric variable", {
+  df <- flat_data()
+  expect_error(
+    synth(df, structure = ~ id, privacy = dp_control(epsilon = 2, domain = "public"),
+          seed = 1),
+    "requires .bounds. for every numeric")
+  # With full bounds it spends nothing on the domain.
+  dp <- dp_control(epsilon = 2, domain = "public",
+                   bounds = list(age = c(20, 100), sbp = c(60, 220)))
+  res <- synth(df, structure = ~ id, privacy = dp, seed = 1)
+  expect_length(res$privacy$domain$vars, 0L)
+  expect_equal(res$privacy$domain$frac, 0)
+})
+
+test_that("domain='data' keeps the legacy warned, unaccounted behaviour", {
+  df <- flat_data()
+  dp <- dp_control(epsilon = 2, domain = "data")
   expect_warning(synth(df, structure = ~ id, privacy = dp, seed = 1),
-                 "not included in the .epsilon")
+                 "derived from the data")
+})
+
+test_that("rigorous modes refuse a bare character column", {
+  df <- flat_data()
+  df$grp <- sample(c("a", "b"), nrow(df), TRUE)             # character, not factor
+  expect_error(
+    synth(df, structure = ~ id, privacy = dp_control(epsilon = 2), seed = 1),
+    "public category set")
+  # Converting to a factor (public levels) makes it acceptable.
+  df$grp <- factor(df$grp)
+  expect_silent(synth(df, structure = ~ id,
+                      privacy = dp_control(epsilon = 2, delta = 1e-6,
+                                           mechanism = "gaussian"), seed = 1))
+})
+
+test_that("DP domain estimation is reproducible for a fixed seed", {
+  df <- flat_data()
+  dp <- dp_control(epsilon = 2, delta = 1e-6, mechanism = "gaussian")  # estimates edges
+  a <- as.data.frame(synth(df, structure = ~ id, privacy = dp, seed = 11))
+  b <- as.data.frame(synth(df, structure = ~ id, privacy = dp, seed = 11))
+  expect_equal(a, b)
+})
+
+# ---- domain-estimation math ------------------------------------------------
+
+test_that("dp_exp_quantile is DP-smoothed but tracks the target quantile", {
+  set.seed(2)
+  x <- rnorm(5000, 50, 10)
+  # Large eps_q -> the exponential mechanism concentrates on the true quantile.
+  lo <- flexsynth:::dp_exp_quantile(x, 0.05, eps_q = 50, cap = 1)
+  hi <- flexsynth:::dp_exp_quantile(x, 0.95, eps_q = 50, cap = 1)
+  q <- stats::quantile(x, c(0.05, 0.95))
+  expect_lt(abs(lo - q[[1]]), 1)
+  expect_lt(abs(hi - q[[2]]), 1)
+  expect_true(lo >= min(x) && hi <= max(x))                # outputs a data value
+})
+
+test_that("dp_estimate_bounds returns a valid increasing range", {
+  b <- flexsynth:::dp_estimate_bounds(c(3, 3, 3, 3), eps_q = 5, cap = 1)  # constant
+  expect_true(b[1] < b[2])
+  b2 <- flexsynth:::dp_estimate_bounds(rnorm(200), eps_q = 5, cap = 1)
+  expect_true(b2[1] < b2[2])
+})
+
+test_that("the budget split composes exactly to the total budget", {
+  # Laplace: marginal eps + domain eps = total eps.
+  dpl <- dp_control(epsilon = 4, domain_frac = 0.25)
+  n_dom <- 4L                                              # 2 vars * 2 quantiles
+  eps_q <- flexsynth:::dp_quantile_eps(dpl, n_dom, dpl$domain_frac)
+  cl <- flexsynth:::dp_calibrate(dpl, n_marginals = 6L, cap = 2, budget_frac = 0.75)
+  eps_marg <- (6 * 2) / cl$scale                          # invert scale = m*cap/eps
+  expect_equal(eps_marg + n_dom * eps_q, 4)               # exact
+  # Gaussian: marginal rho + domain rho = total rho (conservative eps^2/2 bound).
+  dpg <- dp_control(epsilon = 4, delta = 1e-6, mechanism = "gaussian",
+                    domain_frac = 0.25)
+  eps_qg <- flexsynth:::dp_quantile_eps(dpg, n_dom, dpg$domain_frac)
+  cg <- flexsynth:::dp_calibrate(dpg, n_marginals = 6L, cap = 2, budget_frac = 0.75)
+  rho_total <- flexsynth:::zcdp_rho_for(4, 1e-6)
+  rho_dom <- n_dom * (eps_qg^2 / 2)
+  expect_equal(cg$rho_marginals + rho_dom, rho_total)     # exact
 })
 
 test_that("constraints are refused under DP", {

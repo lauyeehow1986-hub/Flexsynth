@@ -44,3 +44,18 @@ test_that("dp_control accepts public bounds and an explicit row cap", {
   expect_identical(dp$max_rows_per_person, 3L)
   expect_identical(dp$bounds$age, c(0, 120))
 })
+
+test_that("dp_control defaults to rigorous DP-estimated bin edges", {
+  dp <- dp_control(epsilon = 1)
+  expect_equal(dp$domain, "dp")
+  expect_equal(dp$domain_frac, 0.1)
+})
+
+test_that("dp_control validates the domain controls", {
+  expect_error(dp_control(epsilon = 1, domain = "bogus"))
+  expect_error(dp_control(epsilon = 1, domain_frac = 0), "domain_frac")
+  expect_error(dp_control(epsilon = 1, domain_frac = 1), "domain_frac")
+  expect_error(dp_control(epsilon = 1, domain_frac = c(0.1, 0.2)), "domain_frac")
+  expect_equal(dp_control(epsilon = 1, domain = "public")$domain, "public")
+  expect_equal(dp_control(epsilon = 1, domain = "data")$domain, "data")
+})
