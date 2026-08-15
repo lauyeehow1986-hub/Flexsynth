@@ -132,10 +132,14 @@ dp_fit_model <- function(codes, nbins, dp, calib, calib_struct = NULL) {
     })
   }
 
-  # Root marginal = the one-way of node 1 (the Prim root).
+  # Root marginal = the one-way of node 1 (the Prim root). `pairwise_mi` is the
+  # full (noisy) mutual-information matrix over the modelled variables; it is
+  # post-processing of already-measured marginals, so it is free to reuse — the DP
+  # longitudinal engine consults it to pick cross-variable transition parents.
+  dimnames(W) <- list(vars, vars)
   list(kind = "tree", vars = vars, nbins = nbins, edges = edges,
        cond = cond, root = 1L, root_marginal = dp_normalise(c1[[1L]]),
-       marginals = lapply(c1, dp_normalise), n_est = n_est)
+       marginals = lapply(c1, dp_normalise), n_est = n_est, pairwise_mi = W)
 }
 
 # Draw one synthetic dataset of `n` rows (matrix of cell codes, n x d).

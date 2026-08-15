@@ -166,6 +166,21 @@ print.dp_accounting <- function(x, ...) {
     if (!is.null(lg$baseline) && length(lg$baseline))
       cat("  baseline  : held constant within unit:",
           paste(lg$baseline, collapse = ", "), "\n")
+    ord <- if (is.null(lg$order)) 1L else lg$order
+    crs <- if (is.null(lg$cross)) 0L else lg$cross
+    if (ord > 1L || crs > 0L) {
+      cat("  transitions: order ", ord, " + ", crs, " cross-parent(s)",
+          " (sensitivity cap - order)\n", sep = "")
+      if (!is.null(lg$cross_parents)) {
+        pairs <- vapply(names(lg$cross_parents), function(v) {
+          cp <- lg$cross_parents[[v]]
+          if (length(cp)) paste0(v, " ~ ", paste(cp, collapse = "+")) else NA_character_
+        }, character(1))
+        pairs <- pairs[!is.na(pairs)]
+        if (length(pairs))
+          cat("               cross-parents:", paste(pairs, collapse = "; "), "\n")
+      }
+    }
   }
   cat("  noise     :",
       if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",

@@ -136,7 +136,13 @@ longitudinal `synth()` release, `dp_control(baseline = c(...))` names
 subject-invariant columns (e.g. birth sex, a baseline measurement): they are
 modelled once in the initial state and held **exactly constant** across a
 person's visits instead of drifting through a transition matrix — which also
-drops their transition histograms, sharpening the rest at the same budget. For a
+drops their transition histograms, sharpening the rest at the same budget. That
+same longitudinal release can deepen its Markov model with
+`dp_control(transition_order = k, transition_cross = m)`: each variable's next
+value then conditions on its own last `k` values and on the lag-1 values of its
+`m` most strongly associated companions (chosen budget-neutrally from the tree's
+pairwise marginals) — extra conditioning is free in the (ε, δ) budget, and a
+higher order actually lowers the transition sensitivity to `cap - order`. For a
 flat tree release, `dp_control(structure_frac = f)` learns the Chow-Liu structure
 from a cheap all-pairs scan (a fraction `f` of the budget) and concentrates the
 rest on re-measuring only the chosen edges — sharper conditionals at the same

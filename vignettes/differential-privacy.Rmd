@@ -279,9 +279,35 @@ max(tapply(syn_base$sex, syn_base$id, function(s) length(unique(s))))
 res_base$privacy   # one fewer transition histogram than the release above
 ```
 
-The remaining honest limitation is that transitions are per-variable:
-cross-variable coupling is carried at `t = 1` by the initial-state tree, not
-re-measured at each later step.
+### Higher-order and cross-variable transitions
+
+The default transition model is first-order and per-variable: each variable's next
+value depends only on its *own* previous value. Two knobs deepen it. `transition_order
+= k` conditions on a variable's own last `k` values (momentum), and `transition_cross
+= m` additionally conditions on the lag-1 values of its `m` most strongly associated
+companions — so cross-variable coupling is re-measured at every step, not just carried
+at `t = 1` by the initial-state tree. Companions are picked from the pairwise marginals
+the tree already measures, so cross-conditioning spends **no** extra budget (a
+transition tuple still lands in exactly one cell); a higher order actually *lowers* the
+transition sensitivity to `cap - order`, since a person then contributes fewer, deeper
+tuples. The order must therefore be at most `max_rows_per_person - 1`, and
+`transition_cross > 0` needs the tree model.
+
+```{r transition-order}
+res_ho <- synth(long, structure = ~ id / visit,
+                privacy = dp_control(epsilon = 8, mechanism = "laplace",
+                                     dependence = "tree", max_rows_per_person = 4,
+                                     bounds = list(sbp = c(60, 240)),
+                                     baseline = "sex",
+                                     transition_order = 2, transition_cross = 1),
+                seed = 1)
+res_ho$privacy   # note: transitions order 2 + 1 cross-parent, same (eps, delta)
+```
+
+Early rows (before position `order + 1`, which have no full history yet) are generated
+by marginalising the very same measured tensor, which is post-processing and costs
+nothing. The trade-off is cell sparsity: a wider conditioning grid spreads the same
+noisy counts more thinly, so reach for depth only when the extra structure is worth it.
 
 ## Linked multi-table releases
 
@@ -424,9 +450,11 @@ conditions on its own past, not the parent.
   table** are mutually exclusive — a child is modelled one way or the other.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
-- `baseline` (columns held exactly constant within a person) applies to a flat
-  longitudinal `synth()` release; holding a longitudinally-modelled *linked* child
-  table's columns constant is not yet supported.
+- `baseline` (columns held exactly constant within a person) and the
+  higher-order / cross-variable transition model (`transition_order`,
+  `transition_cross`) apply to a flat longitudinal `synth()` release; the
+  longitudinally-modelled *linked* child table still uses the first-order,
+  own-lag, all-time-varying model.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

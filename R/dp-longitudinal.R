@@ -108,6 +108,131 @@ dp_markov_codes <- function(init_model, tran, ppos, vars, held = NULL) {
   cmat
 }
 
+# --- Higher-order / cross-variable transition tensors -----------------------
+# When `transition_order > 1` or `transition_cross > 0` the flat DP Markov engine
+# conditions each time-varying variable on more than its own single previous
+# value. The extra conditioning does not change the (eps, delta) budget (a
+# transition tuple still lands in exactly one cell of one histogram); it trades
+# budget-free structure for cell sparsity. See dp_control() for the semantics.
+
+# Column-major linear index (1-based) into a set of aligned parent-code vectors.
+# `codes` holds one integer vector per parent (values 1..nb[[i]]); `nb` the
+# matching bin counts. The first parent varies fastest, matching the row order of
+# a table built as matrix(<array with parent dims first, current last>, nparent, K).
+dp_combo_index <- function(codes, nb) {
+  if (!length(codes)) return(integer(0))
+  mult <- cumprod(c(1, nb[-length(nb)]))
+  idx <- 1L
+  for (i in seq_along(codes)) idx <- idx + (codes[[i]] - 1L) * mult[i]
+  as.integer(idx)
+}
+
+# For each time-varying variable, pick its `cross` most strongly associated other
+# variables from the (noisy) pairwise mutual-information matrix `W` (dimnamed by
+# variable name). Selection reads only already-released marginals, so it spends no
+# budget and adds no leak. Returns a named list (per tv var) of parent var names.
+dp_select_cross_parents <- function(W, tv_vars, all_vars, cross) {
+  out <- stats::setNames(vector("list", length(tv_vars)), tv_vars)
+  if (cross <= 0L || is.null(W)) {
+    for (v in tv_vars) out[[v]] <- character(0)
+    return(out)
+  }
+  for (v in tv_vars) {
+    others <- setdiff(all_vars, v)
+    if (!length(others)) { out[[v]] <- character(0); next }
+    w <- W[v, others]
+    out[[v]] <- others[utils::head(order(w, decreasing = TRUE), cross)]
+  }
+  out
+}
+
+# Fit one conditional transition tensor per time-varying variable. For variable v
+# the tensor counts the tuples (v_t, v_{t-1..t-order}, u_{t-1} for each cross
+# parent u) over the within-unit rows that have a full order-deep history
+# (position > order), then adds calibrated noise. From that single noisy count
+# array it precomputes, for every context depth d = 1..order, the conditional
+# table P(v_t | v_{t-1..t-d}, cross) by marginalising out the deeper own-lags
+# (pure post-processing), so early rows (position <= order) can still be generated
+# without needing their own separate histograms. `codes` is the named list of full
+# code vectors over all variables; `pos` the within-unit position of each row
+# (rows already contiguous and temporal per unit).
+dp_fit_transition_tensors <- function(codes, nbins, pos, order, cross_parents,
+                                      tv_vars, add_noise) {
+  cur <- which(pos > order)                  # rows with a full order-deep history
+  fit_one <- function(v) {
+    K  <- nbins[[v]]
+    cp <- cross_parents[[v]]; if (is.null(cp)) cp <- character(0)
+    cross_nb <- if (length(cp)) as.integer(nbins[cp]) else integer(0)
+    dims <- c(K, rep(K, order), cross_nb)     # [current, own1..own_order, cross...]
+    ncell <- prod(dims)
+    if (length(cur)) {
+      comps <- vector("list", length(dims))
+      comps[[1L]] <- codes[[v]][cur]                       # current value
+      for (j in seq_len(order)) comps[[1L + j]] <- codes[[v]][cur - j]
+      for (k in seq_along(cp))
+        comps[[1L + order + k]] <- codes[[cp[k]]][cur - 1L]
+      counts <- tabulate(dp_combo_index(comps, dims), nbins = ncell)
+    } else {
+      counts <- integer(ncell)
+    }
+    A <- array(pmax(add_noise(counts), 0), dim = dims)
+    cross_dims <- if (length(cp)) (order + 2L):(order + 1L + length(cp))
+                  else integer(0)
+    depth <- lapply(seq_len(order), function(d) {
+      keep <- c(2L:(d + 1L), cross_dims, 1L)   # own1..d, cross, then current LAST
+      red  <- if (length(keep) == length(dims)) aperm(A, keep)
+              else apply(A, keep, sum)
+      nparent <- prod(dims[keep[-length(keep)]])
+      tab <- matrix(as.vector(red), nparent, K)
+      t(apply(tab, 1L, dp_normalise))          # row = parent combo -> P(current|.)
+    })
+    list(depth_tables = depth, own = v, cross = cp,
+         cross_nbins = cross_nb, K = as.integer(K), order = as.integer(order))
+  }
+  stats::setNames(lapply(tv_vars, fit_one), tv_vars)
+}
+
+# Higher-order / cross-variable analogue of dp_markov_codes(). Time-varying
+# variables are stepped through their transition tensors: at position t the
+# context is min(t - 1, order) own lags plus each variable's cross parents at lag
+# 1, looked up in the precomputed depth-d conditional table. Held (baseline)
+# variables are carried forward unchanged, exactly as in dp_markov_codes().
+dp_markov_codes_tensor <- function(init_model, tensors, ppos, vars, held,
+                                   tv_vars, order) {
+  nV <- length(vars)
+  N  <- length(ppos)
+  cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
+  if (!N) return(cmat)
+  if (is.null(held)) held <- logical(nV)
+  vcol <- stats::setNames(seq_len(nV), vars)
+  frows <- which(ppos == 1L)
+  cmat[frows, ] <- dp_sample_codes(init_model, length(frows))
+  tmax <- max(ppos)
+  for (tt in seq_len(tmax)[-1L]) {
+    rows_t <- which(ppos == tt)
+    if (!length(rows_t)) next
+    prv <- rows_t - 1L
+    d <- min(tt - 1L, order)
+    for (vi in seq_len(nV)) {
+      if (held[vi]) { cmat[rows_t, vi] <- cmat[prv, vi]; next }
+      te  <- tensors[[vars[vi]]]
+      tab <- te$depth_tables[[d]]
+      comps <- vector("list", d + length(te$cross))
+      for (j in seq_len(d)) comps[[j]] <- cmat[rows_t - j, vi]
+      for (k in seq_along(te$cross))
+        comps[[d + k]] <- cmat[rows_t - 1L, vcol[[te$cross[k]]]]
+      combo <- dp_combo_index(comps, c(rep(te$K, d), te$cross_nbins))
+      child <- integer(length(rows_t))
+      for (a in unique(combo)) {
+        sel <- which(combo == a)
+        child[sel] <- dp_sample_cat(length(sel), tab[a, ])
+      }
+      cmat[rows_t, vi] <- child
+    }
+  }
+  cmat
+}
+
 # Regenerate a structural index column as the within-unit position, matching the
 # original column's type (integer / numeric / factor). Factor levels are indexed
 # by position and clamped to the available levels.
@@ -181,19 +306,33 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
   held_flag <- vars %in% dp$baseline
   held_vars <- vars[held_flag]
   tv_vars   <- vars[!held_flag]
-  nT        <- length(tv_vars)                 # number of transition matrices
+  nT        <- length(tv_vars)                 # number of transition histograms
+
+  # Transition model order (own lags) and cross-parent count. Higher order needs a
+  # deeper history within the row cap; a person then contributes cap - order tuples
+  # per variable, so the transition sensitivity drops with order.
+  ord   <- if (is.null(dp$transition_order)) 1L else as.integer(dp$transition_order)
+  cross <- if (is.null(dp$transition_cross)) 0L else as.integer(dp$transition_cross)
+  if (ord > cap - 1L) {
+    stop(sprintf(paste0(
+      "transition_order (%d) must be <= max_rows_per_person - 1 (%d) so ",
+      "order-%d within-person transitions can be measured under the row cap."),
+      ord, cap - 1L, ord), call. = FALSE)
+  }
+  use_tensor <- (ord > 1L || cross > 0L) && nT > 0L
 
   # Release composition: 1 length histogram, the initial-state marginals (over
   # ALL variables, baseline included, so baseline correlations are kept), and one
-  # transition matrix per time-varying variable. Sensitivities differ
-  # (transitions scale with cap - 1), so we hand the exact totals to the shared
-  # calibrator.
+  # transition histogram per time-varying variable. A transition histogram has
+  # person-sensitivity cap - order regardless of how many columns condition it (a
+  # tuple lands in one cell), so cross-conditioning is budget-free; only the order
+  # moves the sensitivity. We hand the exact totals to the shared calibrator.
   nV <- length(vars)
   tree <- dp$dependence == "tree" && nV > 1L
   n_init_marg <- nV + if (tree) nV * (nV - 1L) / 2L else 0L
   capf <- as.numeric(cap)
-  total_l1 <- 1 + n_init_marg + nT * (capf - 1)
-  sum_sq   <- 1 + n_init_marg + nT * (capf - 1)^2
+  total_l1 <- 1 + n_init_marg + nT * (capf - ord)
+  sum_sq   <- 1 + n_init_marg + nT * (capf - ord)^2
 
   # Under domain = "dp", privately estimate numeric bin edges (an accounted
   # `domain_frac` slice); the remaining budget pays for the histograms above.
@@ -239,10 +378,18 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
                                 vars)
   init_model <- dp_fit_model(init_codes, nbins, dp, calib)
 
-  # Transition matrices over consecutive within-person pairs, for the
-  # time-varying variables only (baseline columns are held constant, so they need
-  # no transition and drew no budget above).
-  if (nT && length(cur_rows)) {
+  # Transition model over consecutive within-person tuples, for the time-varying
+  # variables only (baseline columns are held constant, so they need no transition
+  # and drew no budget above). A first-order, own-lag-only model uses the simple
+  # per-variable matrices; higher-order / cross-variable models use conditional
+  # tensors. Both draw from `calib$add_noise` at the exact totals set above.
+  tran <- NULL; tensors <- NULL; cross_parents <- NULL
+  if (use_tensor) {
+    cross_parents <- dp_select_cross_parents(init_model$pairwise_mi, tv_vars,
+                                             vars, cross)
+    tensors <- dp_fit_transition_tensors(codes, nbins, pos, ord, cross_parents,
+                                         tv_vars, calib$add_noise)
+  } else if (nT && length(cur_rows)) {
     prev_codes <- stats::setNames(
       lapply(tv_vars, function(v) codes[[v]][prev_rows]), tv_vars)
     cur_codes  <- stats::setNames(
@@ -266,7 +413,11 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
     person <- rep(seq_len(np), lens)
     ppos <- sequence(lens)                    # 1..len within each person
 
-    cmat <- dp_markov_codes(init_model, tran, ppos, vars, held_flag)
+    cmat <- if (use_tensor)
+      dp_markov_codes_tensor(init_model, tensors, ppos, vars, held_flag,
+                             tv_vars, ord)
+    else
+      dp_markov_codes(init_model, tran, ppos, vars, held_flag)
 
     out <- dp_decode_frame(cmat, dom)
     # Held codes are equal within a unit, but numeric decoding draws a fresh
@@ -287,7 +438,9 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
   n_hist <- 1L + as.integer(n_init_marg) + nT
   longitudinal <- list(n_init_marg = as.integer(n_init_marg),
                        n_transitions = nT, length_bins = as.integer(cap),
-                       baseline = held_vars)
+                       baseline = held_vars, order = ord, cross = cross,
+                       cross_parents = if (use_tensor && cross > 0L) cross_parents
+                                       else NULL)
   acct <- new_dp_accounting(dp, calib, cap, n_hist, vars, bounded$dropped,
                             domain_info, longitudinal = longitudinal)
   new_synth_result(

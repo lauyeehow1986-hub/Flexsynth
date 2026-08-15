@@ -172,13 +172,23 @@ engine; Track B is the opt-in differentially private engine.
   release — the remaining measurements are sharper at the same exact
   (\eqn{\epsilon}, \eqn{\delta}). Declaring is public schema knowledge (no budget);
   `baseline = NULL` (default) treats every column as time-varying.
+- [x] **Higher-order / cross-variable DP transitions** (`dp_control(transition_order
+  = k, transition_cross = m)`, flat longitudinal `synth()` release). A variable's
+  next value can condition on its own last `k` values and on the lag-1 values of
+  its `m` most strongly associated companions (selected budget-neutrally from the
+  tree's pairwise marginals, so `transition_cross > 0` requires the tree model).
+  Each variable's transition model is one conditional tensor; early rows are drawn
+  by marginalising it (post-processing, free). Cross-conditioning does not move the
+  budget (a tuple still lands in one cell); a higher order lowers the transition
+  sensitivity to `cap - order`, so composition stays exact and `order <=
+  max_rows_per_person - 1`. Defaults `k = 1, m = 0` reproduce the first-order model.
 - Future: PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection;
-  higher-order / cross-variable DP transitions; combining cross-table conditioning
-  *and* longitudinal transitions on the same child table (currently mutually
-  exclusive per table); extending `baseline` to a longitudinally-modelled linked
-  child table (currently flat `synth()` only). (Data-independent / DP-estimated bin
-  edges are done; see the post-Phase-8 item below.)
+  greedy degree>1 networks and AIM-style adaptive marginal selection; combining
+  cross-table conditioning *and* longitudinal transitions on the same child table
+  (currently mutually exclusive per table); extending `baseline` and the
+  higher-order / cross-variable transition model to a longitudinally-modelled linked
+  child table (both currently flat `synth()` only). (Data-independent / DP-estimated
+  bin edges are done; see the post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -199,9 +209,10 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7 (baseline columns held
-  constant, higher-order transitions, and combining cross-table conditioning with
-  longitudinal transitions on one child table); adaptive-selection structure
+- Future: the further DP extensions listed under Phase 7 (combining cross-table
+  conditioning with longitudinal transitions on one child table, and carrying the
+  baseline / higher-order transition models into linked child tables);
+  adaptive-selection structure
   learning beyond the fixed Chow-Liu split (AIM-style); DP set-union for
   discovering `character` category sets under `domain = "dp"` (currently public
   factor levels are required); and CRAN submission once a stable `0.1.0` API is
