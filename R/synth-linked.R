@@ -1,39 +1,58 @@
 #' Jointly synthesise multiple linked nested / longitudinal tables
 #'
 #' Synthesise several related tables together so that referential integrity and
-#' cross-table statistical relationships are preserved. Parent tables (e.g.
-#' patients, admissions) are synthesised first; child tables (procedures, labs,
-#' meds) are then generated conditionally on the synthetic parent records, with
-#' consistent foreign keys.
+#' cross-table statistical relationships are preserved. The table hierarchy is
+#' read from the `keys`: a table is a *child* of the table whose full key equals
+#' its own key with the last column dropped (so `c("id", "admission_id")` is a
+#' child of `c("id")`). Root tables are synthesised first with the single-table
+#' engine ([synth()]); each child table is then generated from its synthetic
+#' parent.
+#'
+#' For every synthetic parent record the number of child rows is drawn from a
+#' learned count distribution (including parents with **no** children), the
+#' child's foreign key is copied from the parent so it always resolves
+#' (referential integrity), the child's own structural index is regenerated, and
+#' the child's variables are synthesised conditionally on the parent's
+#' synthesised attributes (**cross-table predictors**), the own index and earlier
+#' child variables. Conditioning is on the immediate parent; a grandparent
+#' reaches a child only through the parent's synthesised values. Use
+#' [check_linkage()] to verify the result. Track A carries **no** formal privacy
+#' guarantee.
 #'
 #' @param tables Named list of input `data.frame`s (one per table).
 #' @param structures Named list of one-sided formulas, one per table, giving
-#'   each table's nesting hierarchy.
-#' @param keys Named list of character vectors giving each table's key columns
-#'   (including foreign keys used for linkage).
+#'   each table's nesting hierarchy (e.g. `~ id / admission_id`).
+#' @param keys Named list of character vectors giving each table's key columns.
+#'   The last column is the table's own index; the leading columns are the
+#'   foreign key into its parent.
 #' @param method Synthesis method applied per variable unless overridden.
-#' @param constraints Optional cross-table constraints / rules.
+#' @param constraints Optional cross-table constraints / rules. Not enforced yet
+#'   (roadmap Phase 4); a message is emitted if supplied.
 #' @param tuning A [synth_control()] object.
 #' @param privacy `NULL` for Track A, or a [dp_control()] object for Track B.
 #' @param m Number of synthetic dataset collections to produce.
 #' @param seed Optional integer seed for reproducibility.
 #' @param ... Reserved for future use.
 #'
-#' @return A `synth_linked_result` object (once the engine lands). See the roadmap.
+#' @return A `synth_linked_result`. Use [as.list()] (for `m == 1`) or `$syn` to
+#'   get the named list of synthetic tables.
 #' @export
 #' @examples
-#' \dontrun{
-#' synth_linked(
-#'   tables     = list(admissions = adm, procedures = proc, labs = lab),
-#'   structures = list(admissions = ~ id / admission_id,
-#'                     procedures = ~ id / admission_id / procedure_number,
-#'                     labs       = ~ id / admission_id / lab_number),
-#'   keys       = list(admissions = c("id", "admission_id"),
-#'                     procedures = c("id", "admission_id"),
-#'                     labs       = c("id", "admission_id")),
-#'   method = "cart", seed = 1
+#' patients <- data.frame(id = 1:20,
+#'                        sex = sample(c("F", "M"), 20, TRUE),
+#'                        stringsAsFactors = FALSE)
+#' adm <- do.call(rbind, lapply(patients$id, function(pid) {
+#'   n <- 1 + rpois(1, 0.6)
+#'   data.frame(id = pid, admission_id = seq_len(n),
+#'              los = 1L + rpois(n, 3))
+#' }))
+#' res <- synth_linked(
+#'   tables     = list(patients = patients, admissions = adm),
+#'   structures = list(patients = ~ id, admissions = ~ id / admission_id),
+#'   keys       = list(patients = "id", admissions = c("id", "admission_id")),
+#'   seed = 1
 #' )
-#' }
+#' check_linkage(res)
 synth_linked <- function(tables,
                          structures,
                          keys,
@@ -61,11 +80,26 @@ synth_linked <- function(tables,
   validate_privacy(privacy)
   validate_m(m)
 
-  track <- if (is.null(privacy)) "A (high-utility)" else "B (differentially private)"
-  stop(sprintf(
-    paste0("synth_linked(): the joint synthesis engine is not implemented yet ",
-           "(Phase 3). Inputs validated for %d tables, Track %s. ",
-           "See CLAUDE.md roadmap."),
-    length(tables), track
-  ), call. = FALSE)
+  if (!is.null(privacy)) {
+    stop(paste0("synth_linked(): differentially private synthesis (Track B) is ",
+                "not implemented yet (Phase 7). See CLAUDE.md roadmap."),
+         call. = FALSE)
+  }
+  if (!is.null(constraints)) {
+    message("`constraints` are not enforced yet (Phase 4); ignoring them.")
+  }
+  for (t in names(tables)) validate_structure(structures[[t]])
+
+  hierarchy <- link_hierarchy(tables, structures, keys)
+
+  if (!is.null(seed)) set.seed(seed)
+  syns <- lapply(seq_len(m),
+                 function(i) synth_linked_once(tables, hierarchy, method, tuning))
+  syn <- if (m == 1L) syns[[1L]] else syns
+
+  new_synth_linked_result(
+    syn = syn, m = as.integer(m), n = vapply(tables, nrow, integer(1)),
+    hierarchy = hierarchy, method = method, privacy = NULL,
+    seed = seed, call = match.call()
+  )
 }

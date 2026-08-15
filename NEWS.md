@@ -21,3 +21,14 @@
   variable), so within-unit autocorrelation across visits is preserved. Units
   of unequal length are supported; the flat and subject-baseline behaviour from
   Phase 1 is unchanged.
+* **Phase 3 — linked multi-table engine.** `synth_linked()` now returns real
+  synthetic tables (a `synth_linked_result`). The table hierarchy is read from
+  the `keys`; root tables are synthesised with the single-table engine and each
+  child table is generated from its synthetic parent. Foreign keys are copied
+  from the parent so they always resolve (referential integrity); the number of
+  child rows per parent is drawn from a learned count distribution that includes
+  parents with no children; the child's own index is regenerated; and child
+  variables are conditioned on the parent's synthesised attributes (cross-table
+  predictors), the own index and earlier child variables. Added `check_linkage()`
+  to verify key uniqueness and the absence of orphan child rows, plus
+  `as.list()` / `print()` methods for `synth_linked_result`.

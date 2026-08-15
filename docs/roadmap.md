@@ -33,9 +33,22 @@ engine; Track B is the opt-in differentially private engine.
 - Future: covariate-conditioned counts and a fully order-consistent positional
   index model (current count model matches the empirical size distribution).
 
-## Phase 3 — linked multi-table engine (Track A)
-- `synth_linked()`: parent-first joint synthesis, consistent foreign keys,
-  referential integrity, cross-table predictors. `check_linkage()`.
+## Phase 3 — linked multi-table engine (Track A)  *(done)*
+- [x] Table hierarchy inferred from `keys` (a table is a child of the table
+      whose key is its own key minus the last column); topological, parent-first
+      generation with cycle / missing-parent detection.
+- [x] Root tables synthesised with the single-table engine; child tables
+      generated from their synthetic parent with foreign keys copied over, so
+      referential integrity holds by construction.
+- [x] Learned children-per-parent count model, including zero-inflation
+      (parents with no children); child own-index regenerated per unit.
+- [x] Cross-table predictors: child variables conditioned on the parent's
+      synthesised attributes (immediate-parent conditioning), the own index and
+      earlier child variables.
+- [x] `check_linkage()` verifies key uniqueness and absence of orphan rows;
+      `synth_linked_result` with `as.list()` / `print()`.
+- Future: multi-parent (non-tree) links, deeper-ancestor predictors, and
+  covariate-conditioned child counts.
 
 ## Phase 4 — methods, constraints, tuning
 - Full method set (forest, ctree, parametric, rank, custom via

@@ -337,7 +337,41 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
 }
 
 # ---------------------------------------------------------------------------
-# One synthetic dataset
+# Column filling (shared by single-table and linked-child synthesis)
+# ---------------------------------------------------------------------------
+
+# Fill the variable columns of an already-built skeleton `syn` (which carries the
+# unit identifier, structural indices, and any predictor columns attached ahead
+# of time). Subject-invariant columns are synthesised once per unit and
+# broadcast; time-varying columns get the autoregressive temporal model.
+#   * `subj_fixed` — predictor columns available at the subject grain (constant
+#     within a unit, e.g. a linked child's parent attributes). For a plain single
+#     table this is empty.
+#   * `time_fixed` — predictor columns available at the row grain (structural
+#     indices, plus any carried attributes).
+# Both must already be present in `train` and in `syn`.
+fill_columns <- function(train, syn, st, subj_cols, time_cols,
+                         subj_fixed, time_fixed, methods, control) {
+  id_col <- st$id
+
+  if (length(subj_cols)) {
+    keepc <- c(id_col, subj_fixed)
+    sdat <- train[!duplicated(train[[id_col]]), c(keepc, subj_cols), drop = FALSE]
+    ssyn <- syn[!duplicated(syn[[id_col]]), keepc, drop = FALSE]
+    ssyn <- synth_sequence(sdat, ssyn, subj_cols, subj_fixed, methods, control)
+    pos <- match(syn[[id_col]], ssyn[[id_col]])
+    for (v in subj_cols) syn[[v]] <- ssyn[[v]][pos]
+  }
+
+  if (length(time_cols)) {
+    syn <- synth_temporal(train, syn, st, subj_cols, time_cols, time_fixed,
+                          methods, control)
+  }
+  syn
+}
+
+# ---------------------------------------------------------------------------
+# One synthetic dataset (single table)
 # ---------------------------------------------------------------------------
 
 # Produce one synthetic data.frame. The skeleton (unit id + structural indices)
@@ -346,23 +380,10 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
 # with the autoregressive temporal model.
 synthesise_once <- function(data, st, subj_cols, time_cols, fixed_cols,
                             methods, control) {
-  id_col <- st$id
   syn <- synth_skeleton(data, st, control)
-
-  if (length(subj_cols)) {
-    sdat <- data[!duplicated(data[[id_col]]), c(id_col, subj_cols), drop = FALSE]
-    ssyn <- data.frame(sort(unique(syn[[id_col]])))
-    names(ssyn) <- id_col
-    ssyn <- synth_sequence(sdat, ssyn, subj_cols, character(0), methods, control)
-    pos <- match(syn[[id_col]], ssyn[[id_col]])
-    for (v in subj_cols) syn[[v]] <- ssyn[[v]][pos]
-  }
-
-  if (length(time_cols)) {
-    syn <- synth_temporal(data, syn, st, subj_cols, time_cols, fixed_cols,
-                          methods, control)
-  }
-
+  syn <- fill_columns(data, syn, st, subj_cols, time_cols,
+                      subj_fixed = character(0), time_fixed = fixed_cols,
+                      methods, control)
   syn <- syn[names(data)]          # restore original column order
   rownames(syn) <- NULL
   syn

@@ -21,14 +21,16 @@ synth_linked(
 \item{tables}{Named list of input \code{data.frame}s (one per table).}
 
 \item{structures}{Named list of one-sided formulas, one per table, giving
-each table's nesting hierarchy.}
+each table's nesting hierarchy (e.g. \code{~ id / admission_id}).}
 
-\item{keys}{Named list of character vectors giving each table's key columns
-(including foreign keys used for linkage).}
+\item{keys}{Named list of character vectors giving each table's key columns.
+The last column is the table's own index; the leading columns are the
+foreign key into its parent.}
 
 \item{method}{Synthesis method applied per variable unless overridden.}
 
-\item{constraints}{Optional cross-table constraints / rules.}
+\item{constraints}{Optional cross-table constraints / rules. Not enforced yet
+(roadmap Phase 4); a message is emitted if supplied.}
 
 \item{tuning}{A \code{\link[=synth_control]{synth_control()}} object.}
 
@@ -41,26 +43,44 @@ each table's nesting hierarchy.}
 \item{...}{Reserved for future use.}
 }
 \value{
-A \code{synth_linked_result} object (once the engine lands). See the roadmap.
+A \code{synth_linked_result}. Use \code{\link[=as.list]{as.list()}} (for \code{m == 1}) or \verb{$syn} to
+get the named list of synthetic tables.
 }
 \description{
 Synthesise several related tables together so that referential integrity and
-cross-table statistical relationships are preserved. Parent tables (e.g.
-patients, admissions) are synthesised first; child tables (procedures, labs,
-meds) are then generated conditionally on the synthetic parent records, with
-consistent foreign keys.
+cross-table statistical relationships are preserved. The table hierarchy is
+read from the \code{keys}: a table is a \emph{child} of the table whose full key equals
+its own key with the last column dropped (so \code{c("id", "admission_id")} is a
+child of \code{c("id")}). Root tables are synthesised first with the single-table
+engine (\code{\link[=synth]{synth()}}); each child table is then generated from its synthetic
+parent.
+}
+\details{
+For every synthetic parent record the number of child rows is drawn from a
+learned count distribution (including parents with \strong{no} children), the
+child's foreign key is copied from the parent so it always resolves
+(referential integrity), the child's own structural index is regenerated, and
+the child's variables are synthesised conditionally on the parent's
+synthesised attributes (\strong{cross-table predictors}), the own index and earlier
+child variables. Conditioning is on the immediate parent; a grandparent
+reaches a child only through the parent's synthesised values. Use
+\code{\link[=check_linkage]{check_linkage()}} to verify the result. Track A carries \strong{no} formal privacy
+guarantee.
 }
 \examples{
-\dontrun{
-synth_linked(
-  tables     = list(admissions = adm, procedures = proc, labs = lab),
-  structures = list(admissions = ~ id / admission_id,
-                    procedures = ~ id / admission_id / procedure_number,
-                    labs       = ~ id / admission_id / lab_number),
-  keys       = list(admissions = c("id", "admission_id"),
-                    procedures = c("id", "admission_id"),
-                    labs       = c("id", "admission_id")),
-  method = "cart", seed = 1
+patients <- data.frame(id = 1:20,
+                       sex = sample(c("F", "M"), 20, TRUE),
+                       stringsAsFactors = FALSE)
+adm <- do.call(rbind, lapply(patients$id, function(pid) {
+  n <- 1 + rpois(1, 0.6)
+  data.frame(id = pid, admission_id = seq_len(n),
+             los = 1L + rpois(n, 3))
+}))
+res <- synth_linked(
+  tables     = list(patients = patients, admissions = adm),
+  structures = list(patients = ~ id, admissions = ~ id / admission_id),
+  keys       = list(patients = "id", admissions = c("id", "admission_id")),
+  seed = 1
 )
-}
+check_linkage(res)
 }
