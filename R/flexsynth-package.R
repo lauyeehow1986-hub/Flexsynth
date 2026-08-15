@@ -15,4 +15,6 @@
 #' as differentially private.
 #'
 #' @keywords internal
+#' @importFrom stats predict setNames
+#' @importFrom utils modifyList
 "_PACKAGE"

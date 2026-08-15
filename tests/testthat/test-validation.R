@@ -1,11 +1,16 @@
-test_that("synth validates inputs and signals not-yet-implemented", {
+test_that("synth runs Track A but signals Track B is not yet implemented", {
   df <- data.frame(id = 1:4, visit = c(1, 2, 1, 2), y = rnorm(4))
-  expect_error(synth(df, structure = ~ id / visit), "not implemented yet")
-  # Track B path is validated too
+  expect_s3_class(synth(df, structure = ~ id / visit, seed = 1), "synth_result")
+  # Track B (DP) path is validated but not yet built
   expect_error(
     synth(df, structure = ~ id / visit, privacy = dp_control(epsilon = 1)),
     "Track B"
   )
+})
+
+test_that("synth rejects structure variables absent from data", {
+  df <- data.frame(id = 1:4, y = rnorm(4))
+  expect_error(synth(df, structure = ~ id / visit), "not found in `data`")
 })
 
 test_that("synth rejects bad structure and data", {
