@@ -94,7 +94,7 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
                 "non-structural column to model over time."), call. = FALSE)
   }
 
-  cap <- if (is.null(dp$max_rows_per_person)) 1L else dp$max_rows_per_person
+  cap <- dp_scalar_cap(dp)
   if (dp$unit == "row") cap <- 1L
   if (cap < 2L) {
     stop(sprintf(paste0(

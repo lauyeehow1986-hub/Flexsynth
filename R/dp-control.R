@@ -54,7 +54,10 @@
 #'   knowledge when a person legitimately has several rows. For a longitudinal DP
 #'   release (a `structure` with a nesting index), this must be `>= 2` — it caps
 #'   the transition sensitivity — and the per-person prefix of that many rows is
-#'   kept in temporal order.
+#'   kept in temporal order. For a linked DP release ([synth_linked()]) it is the
+#'   maximum children kept per parent — a single integer applied to every child
+#'   table, or a **named** vector/list keyed by child-table name (e.g.
+#'   `list(admissions = 8, labs = 20)`) — and the root cap is always 1.
 #' @param mechanism Noise mechanism: `"laplace"` (pure \eqn{\epsilon}-DP) or
 #'   `"gaussian"` (approximate DP with zCDP composition; needs `delta > 0`).
 #' @param dependence Dependence structure of the generative model: `"tree"`
@@ -111,12 +114,27 @@ dp_control <- function(epsilon,
   if (mechanism == "gaussian" && delta <= 0) {
     stop("The gaussian mechanism requires delta > 0.", call. = FALSE)
   }
-  if (!is.null(max_rows_per_person) &&
-      (!is.numeric(max_rows_per_person) || length(max_rows_per_person) != 1L ||
-       is.na(max_rows_per_person) || max_rows_per_person < 1 ||
-       max_rows_per_person != as.integer(max_rows_per_person))) {
-    stop("`max_rows_per_person` must be NULL or a single positive integer.",
-         call. = FALSE)
+  if (!is.null(max_rows_per_person)) {
+    mrp <- max_rows_per_person
+    is_named <- !is.null(names(mrp)) && all(names(mrp) != "") &&
+      (is.list(mrp) || is.numeric(mrp)) && length(mrp) >= 1L
+    if (is_named) {
+      vals <- suppressWarnings(as.numeric(unlist(mrp, use.names = FALSE)))
+      ok <- length(vals) == length(mrp) && all(is.finite(vals)) &&
+        all(vals >= 1) && all(vals == as.integer(vals))
+      if (!ok) {
+        stop(paste0("each per-table `max_rows_per_person` must be a positive ",
+                    "integer."), call. = FALSE)
+      }
+      max_rows_per_person <- stats::setNames(as.integer(vals), names(mrp))
+    } else if (is.numeric(mrp) && length(mrp) == 1L && !is.na(mrp) &&
+               mrp >= 1 && mrp == as.integer(mrp)) {
+      max_rows_per_person <- as.integer(mrp)
+    } else {
+      stop(paste0("`max_rows_per_person` must be NULL, a single positive ",
+                  "integer, or a named vector/list of positive integers (one ",
+                  "per table, for linked DP)."), call. = FALSE)
+    }
   }
   if (!is.numeric(bins) || length(bins) != 1L || is.na(bins) || bins < 2 ||
       bins != as.integer(bins)) {
@@ -145,8 +163,7 @@ dp_control <- function(epsilon,
       epsilon = epsilon,
       delta = delta,
       unit = unit,
-      max_rows_per_person =
-        if (is.null(max_rows_per_person)) NULL else as.integer(max_rows_per_person),
+      max_rows_per_person = max_rows_per_person,   # NULL, integer, or named ints
       mechanism = mechanism,
       dependence = dependence,
       bins = as.integer(bins),
@@ -170,7 +187,11 @@ print.dp_control <- function(x, ...) {
   cat("  domain    :", x$domain,
       if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),
                                    " of budget for edges)") else "", "\n")
+  mrp <- x$max_rows_per_person
   cat("  max rows/person:",
-      if (is.null(x$max_rows_per_person)) "1 (auto)" else x$max_rows_per_person, "\n")
+      if (is.null(mrp)) "1 (auto)"
+      else if (!is.null(names(mrp)))
+        paste(paste0(names(mrp), "=", mrp), collapse = ", ")
+      else mrp, "\n")
   invisible(x)
 }

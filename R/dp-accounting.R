@@ -109,7 +109,7 @@ rlaplace <- function(n, scale) {
 new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
                                             eps_per_query = NA_real_, frac = 0),
-                              longitudinal = NULL) {
+                              longitudinal = NULL, linked = NULL) {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -124,7 +124,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       variables = variables,
       rows_dropped = dropped,
       domain = domain,
-      longitudinal = longitudinal
+      longitudinal = longitudinal,
+      linked = linked
     ),
     class = "dp_accounting"
   )
@@ -139,9 +140,14 @@ print.dp_accounting <- function(x, ...) {
   cat("  mechanism :", x$mechanism,
       if (x$mechanism == "gaussian") paste0("(rho = ", signif(x$rho, 3), " zCDP)") else "", "\n")
   cat("  model     :", x$dependence, "over", length(x$variables), "variables",
-      if (!is.null(x$longitudinal)) "(DP Markov: initial-state + transitions)" else "",
+      if (!is.null(x$longitudinal)) "(DP Markov: initial-state + transitions)"
+      else if (!is.null(x$linked)) paste0("(linked: ", x$linked$n_tables, " tables)")
+      else "",
       "\n")
-  if (is.null(x$longitudinal)) {
+  if (!is.null(x$linked)) {
+    cat("  histograms:", x$n_marginals,
+        "(per-table variable marginals + child count models, composed budget)\n")
+  } else if (is.null(x$longitudinal)) {
     cat("  marginals :", x$n_marginals,
         "(measured under composed budget)\n")
   } else {
@@ -153,9 +159,20 @@ print.dp_accounting <- function(x, ...) {
   cat("  noise     :",
       if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
       signif(x$noise, 4), "per cell\n")
-  cat("  row cap   :", x$cap, "per", x$unit,
-      if (x$rows_dropped > 0) paste0("(", x$rows_dropped, " rows dropped by capping)") else "",
-      "\n")
+  if (!is.null(x$linked)) {
+    for (ti in x$linked$tables) {
+      role <- if (ti$role == "root") "root, cap 1"
+              else paste0("child of ", ti$parent, ", <=", ti$local_cap,
+                          "/parent, path cap ", ti$path_cap)
+      cat(sprintf("    - %-14s %s%s\n", ti$name, role,
+                  if (ti$rows_dropped > 0)
+                    paste0(" (", ti$rows_dropped, " rows dropped)") else ""))
+    }
+  } else {
+    cat("  row cap   :", x$cap, "per", x$unit,
+        if (x$rows_dropped > 0) paste0("(", x$rows_dropped, " rows dropped by capping)") else "",
+        "\n")
+  }
   dm <- x$domain
   if (!is.null(dm)) {
     if (length(dm$vars) > 0) {

@@ -6,6 +6,20 @@
 # domain object knows how to encode real values to integer cell indices and how
 # to decode synthetic indices back to typed values.
 
+# Resolve the single-table (flat / longitudinal) per-person row cap from a
+# dp_control. A named per-table cap is only meaningful for linked DP, so reject
+# it here with a clear message rather than letting a vector leak into `cap`.
+dp_scalar_cap <- function(dp) {
+  mrp <- dp$max_rows_per_person
+  if (is.null(mrp)) return(1L)
+  if (!is.null(names(mrp)) || length(mrp) != 1L) {
+    stop(paste0("A named per-table `max_rows_per_person` is only for linked DP ",
+                "(synth_linked()); pass a single positive integer to synth()."),
+         call. = FALSE)
+  }
+  as.integer(mrp)
+}
+
 # Subsample each person's rows down to at most `cap`, so one person changes any
 # marginal by at most `cap`. Returns the capped data and the number of rows
 # dropped. Rows are chosen at random within each over-cap person.

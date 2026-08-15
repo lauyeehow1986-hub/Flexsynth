@@ -256,16 +256,22 @@ test_that("constraints are refused under DP", {
     "not supported under differentially private")
 })
 
-test_that("linked DP is refused with a clear message", {
-  patients <- data.frame(id = 1:10, sex = sample(c("F", "M"), 10, TRUE),
-                         stringsAsFactors = FALSE)
-  expect_error(
-    synth_linked(
-      tables = list(patients = patients),
-      structures = list(patients = ~ id),
-      keys = list(patients = "id"),
-      privacy = dp_control(epsilon = 1)),
-    "not available for linked")
+test_that("linked DP produces a private result (see test-dp-linked for detail)", {
+  set.seed(1)
+  patients <- data.frame(id = 1:30, sex = factor(sample(c("F", "M"), 30, TRUE)))
+  adm <- do.call(rbind, lapply(patients$id, function(pid) {
+    n <- 1L + stats::rpois(1, 1)
+    data.frame(id = pid, admission_id = seq_len(n), los = 1L + stats::rpois(n, 2))
+  }))
+  res <- synth_linked(
+    tables = list(patients = patients, admissions = adm),
+    structures = list(patients = ~ id, admissions = ~ id / admission_id),
+    keys = list(patients = "id", admissions = c("id", "admission_id")),
+    privacy = dp_control(epsilon = 4, max_rows_per_person = 5,
+                         domain = "public", bounds = list(los = c(0, 40))),
+    seed = 1)
+  expect_s3_class(res$privacy, "dp_accounting")
+  expect_true(all(as.list(res)$admissions$id %in% as.list(res)$patients$id))
 })
 
 test_that("dp_accounting prints its guarantee", {

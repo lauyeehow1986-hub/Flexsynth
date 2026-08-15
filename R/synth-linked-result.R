@@ -21,8 +21,17 @@ new_synth_linked_result <- function(syn, m, n, hierarchy, method, privacy,
 print.synth_linked_result <- function(x, ...) {
   h <- x$hierarchy
   first <- if (x$m == 1L) x$syn else x$syn[[1L]]
+  dp <- inherits(x$privacy, "dp_accounting")
   cat("<synth_linked_result>\n")
-  cat("  track        : A (high-utility; NOT differentially private)\n")
+  if (dp) {
+    cat("  track        : B (differentially private; root-entity level)\n")
+    cat(sprintf("  guarantee    : (epsilon = %s%s)-DP\n", x$privacy$epsilon,
+                if (x$privacy$delta > 0)
+                  paste0(", delta = ", format(x$privacy$delta, scientific = TRUE))
+                else ", pure eps"))
+  } else {
+    cat("  track        : A (high-utility; NOT differentially private)\n")
+  }
   cat("  datasets (m) :", x$m, "\n")
   cat("  tables       :", length(h$names), "\n")
   for (t in h$order) {

@@ -34,7 +34,10 @@ by per-person subsampling before measuring. Set this from public domain
 knowledge when a person legitimately has several rows. For a longitudinal DP
 release (a \code{structure} with a nesting index), this must be \verb{>= 2} — it caps
 the transition sensitivity — and the per-person prefix of that many rows is
-kept in temporal order.}
+kept in temporal order. For a linked DP release (\code{\link[=synth_linked]{synth_linked()}}) it is the
+maximum children kept per parent — a single integer applied to every child
+table, or a \strong{named} vector/list keyed by child-table name (e.g.
+\code{list(admissions = 8, labs = 20)}) — and the root cap is always 1.}
 
 \item{mechanism}{Noise mechanism: \code{"laplace"} (pure \eqn{\epsilon}-DP) or
 \code{"gaussian"} (approximate DP with zCDP composition; needs \code{delta > 0}).}

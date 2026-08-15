@@ -1,5 +1,29 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: linked multi-table DP.** `synth_linked()` now accepts a
+  `dp_control()`, producing a differentially private release across a whole key
+  hierarchy at once. The privacy unit is the **root entity**: adding or removing
+  one individual — its root row and all the descendant rows that cascade from it —
+  changes the release within a formal (\eqn{\epsilon}, \eqn{\delta}) budget.
+  Contribution is bounded hierarchically; `max_rows_per_person` is reused as the
+  maximum children kept per parent for each child table (a single integer for all
+  child tables, or a named list keyed by table name), the root cap being 1.
+  Capping top-down bounds each entity's per-table row count to a *path cap* (the
+  product of branching caps from the root). Each table's variable marginals and a
+  children-per-parent **count histogram** are measured under one exactly-composed
+  budget: the summed L1 (Laplace) and summed squared L2 (Gaussian zCDP)
+  sensitivities add over every histogram, each scaled by its per-entity path cap
+  (variable marginals) or the parent's path cap (count histograms). Numeric bin
+  edges are DP-estimated per table (`domain = "dp"`) at the same per-table
+  sensitivity, sharing the `domain_frac` slice. Generation is parent-first and
+  copies each synthetic parent's surrogate key down as the foreign key, so
+  referential integrity holds by construction (`check_linkage()` confirms it) at
+  no privacy cost. First-version limitations: child variables are modelled by
+  their own within-table marginals (cross-table statistical conditioning is not
+  preserved under DP — only referential integrity), within-table longitudinal
+  structure is not modelled for a linked table, and constraints / `unit = "row"`
+  are refused. `dp_control(max_rows_per_person = ...)` now also accepts a named
+  vector/list of per-table caps.
 * **Track B: longitudinal DP (a DP Markov model).** When the `structure`
   declares a nesting index (`synth(data, ~ id / visit, privacy = dp_control(...))`),
   the differentially private engine now preserves within-unit temporal structure

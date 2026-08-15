@@ -113,14 +113,28 @@ engine; Track B is the opt-in differentially private engine.
       \eqn{= 1 + n_{init} + |V|(c-1)^2}). `max_rows_per_person >= 2` bounds the
       transition sensitivity; the nesting index is regenerated as the within-person
       position. Flat `~ id` releases unchanged.
-- Future: linked multi-table DP for `synth_linked()`; budget-efficient structure
-  learning (measure structure cheaply, then only the chosen tree's edges, instead
-  of measuring all pairwise marginals); PrivBayes greedy degree>1 networks and
-  AIM-style adaptive marginal selection; publicly-declared baseline columns held
-  exactly constant within a person under the DP Markov model (currently every
-  non-index column is time-varying); higher-order / cross-variable DP
-  transitions. (Data-independent / DP-estimated bin edges are done; see the
-  post-Phase-8 item below.)
+- [x] **Linked multi-table DP for `synth_linked()`.** A `dp_control()` now drives
+  a DP release across a whole key hierarchy, at the **root-entity** grain.
+  Contribution is bounded hierarchically (`max_rows_per_person` reused as a
+  per-child-table branching cap; the per-entity *path cap* for a table is the
+  product of branching caps from the root); each table's variable marginals and a
+  children-per-parent count histogram are measured under one exactly-composed
+  budget (summed L1 for Laplace, summed squared L2 for Gaussian zCDP, each scaled
+  by the relevant path cap), with per-table DP bin-edge estimation sharing the
+  `domain_frac` slice. Generation copies the synthetic parent's surrogate key so
+  referential integrity holds by construction. First version: child variables use
+  their own within-table marginals (no cross-table conditioning under DP), no
+  within-table longitudinal model, constraints / `unit = "row"` refused.
+- Future: **cross-table conditioning under DP** (measure parent×child joint
+  marginals so child variables depend on the synthetic parent, not just link to
+  it); budget-efficient structure learning (measure structure cheaply, then only
+  the chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
+  greedy degree>1 networks and AIM-style adaptive marginal selection;
+  publicly-declared baseline columns held exactly constant within a person under
+  the DP Markov model (currently every non-index column is time-varying);
+  higher-order / cross-variable DP transitions; combining linked + longitudinal DP
+  (a within-table Markov model for a linked child). (Data-independent /
+  DP-estimated bin edges are done; see the post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -141,7 +155,8 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the linked-data and longitudinal DP extensions listed under Phase 7;
-  DP set-union for discovering `character` category sets under `domain = "dp"`
-  (currently public factor levels are required); and CRAN submission once a
-  stable `0.1.0` API is tagged.
+- Future: the further DP extensions listed under Phase 7 (cross-table
+  conditioning, budget-efficient structure learning, baseline columns held
+  constant, higher-order transitions); DP set-union for discovering `character`
+  category sets under `domain = "dp"` (currently public factor levels are
+  required); and CRAN submission once a stable `0.1.0` API is tagged.

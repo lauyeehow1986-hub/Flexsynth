@@ -122,9 +122,11 @@ dp_res <- synth(df, structure = ~ id, privacy = dp, seed = 1)
 dp_res$privacy                           # the (ε, δ) accounting record
 ```
 
-DP mode produces a flat marginal release with exact Laplace / zCDP-Gaussian
-accounting. See `vignette("differential-privacy")` for scope and the honest
-utility trade-off.
+DP works for a flat table (`~ id`), a longitudinal one (`~ id / visit`, a DP
+Markov model over visits), and a whole linked hierarchy (`synth_linked(...,
+privacy = dp_control(...))`, at the root-entity grain) — all with exact
+Laplace / zCDP-Gaussian accounting. See `vignette("differential-privacy")` for
+scope and the honest utility trade-off.
 
 ## Learn more
 

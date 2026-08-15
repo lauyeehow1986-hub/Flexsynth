@@ -235,13 +235,67 @@ drift slightly between a synthetic person's visits), and transitions are
 per-variable (cross-variable coupling is carried at `t = 1` by the initial-state
 tree, not re-measured at each later step).
 
+## Linked multi-table releases
+
+`synth_linked()` accepts a `dp_control()` too, giving a DP release across a whole
+key hierarchy at once. The privacy unit is the **root entity** (e.g. a patient):
+adding or removing one individual — its root row *and* every descendant row that
+cascades from it — changes the release within the budget. Contribution is bounded
+hierarchically, so `max_rows_per_person` here means the maximum children kept per
+parent for each child table: a single integer for every child table, or a named
+list keyed by table name. The root cap is always 1.
+
+```{r linked}
+set.seed(1)
+patients <- data.frame(
+  id  = 1:300,
+  age = round(rnorm(300, 60, 11)),
+  sex = factor(sample(c("F", "M"), 300, TRUE)))
+adm <- do.call(rbind, lapply(patients$id, function(pid) {
+  n <- rpois(1, 1.4); if (n == 0) return(NULL)
+  data.frame(id = pid, admission_id = seq_len(n), los = 1L + rpois(n, 4))
+}))
+
+dp_link <- dp_control(
+  epsilon = 4, mechanism = "laplace",
+  max_rows_per_person = list(admissions = 6),        # <= 6 admissions per patient
+  domain = "public",
+  bounds = list(age = c(18, 100), los = c(0, 60)))
+
+res_link <- synth_linked(
+  tables     = list(patients = patients, admissions = adm),
+  structures = list(patients = ~ id, admissions = ~ id / admission_id),
+  keys       = list(patients = "id", admissions = c("id", "admission_id")),
+  privacy    = dp_link, seed = 1)
+res_link$privacy
+```
+
+Each table's own variable marginals and a children-per-parent **count histogram**
+are measured under one exactly-composed budget; the summed L1 (Laplace) and summed
+squared L2 (Gaussian zCDP) sensitivities add over every histogram, with each
+table's contribution scaled by its per-entity *path cap* (the product of branching
+caps from the root). Synthetic children copy their synthetic parent's surrogate
+key, so referential integrity holds by construction — `check_linkage()` confirms
+it:
+
+```{r linked-ri}
+check_linkage(res_link)
+```
+
+Two first-cut limitations under DP: child variables are modelled by their own
+within-table marginals (cross-table statistical coupling — the parent→child
+conditioning that Track A preserves — is *not* retained under DP, only referential
+integrity), and within-table longitudinal (Markov) structure is not modelled for a
+linked table. Constraints are refused, as elsewhere under DP.
+
 ## What Track B does *not* do (yet)
 
-- **Linked multi-table** DP (via `synth_linked()`) is not available yet.
+- **Cross-table conditioning** under linked DP: only referential integrity and
+  per-table marginals are preserved, not the parent→child statistical coupling.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
 - Publicly-declared baseline columns (held exactly constant within a person
-  under DP) are not yet supported — see the note above.
+  under DP) are not yet supported — see the longitudinal note above.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

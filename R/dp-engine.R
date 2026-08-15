@@ -150,7 +150,7 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     stop("DP synthesis needs at least one non-identifier column.", call. = FALSE)
   }
 
-  cap <- if (is.null(dp$max_rows_per_person)) 1L else dp$max_rows_per_person
+  cap <- dp_scalar_cap(dp)
   if (dp$unit == "row") cap <- 1L
   bounded <- dp_contribution_bound(data, id, cap)
   cdata <- bounded$data

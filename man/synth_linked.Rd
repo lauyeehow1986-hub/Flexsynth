@@ -31,7 +31,7 @@ foreign key into its parent.}
 
 \item{constraints}{Optional cross-table constraints / rules. Constraint
 enforcement currently applies to single-table \code{\link[=synth]{synth()}} only; a message is
-emitted if supplied here.}
+emitted if supplied here (Track A) and it is an error under \code{privacy} (DP).}
 
 \item{tuning}{A \code{\link[=synth_control]{synth_control()}} object.}
 
@@ -67,6 +67,22 @@ child variables. Conditioning is on the immediate parent; a grandparent
 reaches a child only through the parent's synthesised values. Use
 \code{\link[=check_linkage]{check_linkage()}} to verify the result. Track A carries \strong{no} formal privacy
 guarantee.
+
+Passing \code{privacy = dp_control(...)} selects differentially private synthesis
+(Track B) with a formal (\eqn{\epsilon}, \eqn{\delta}) guarantee at the
+\strong{root-entity} grain: adding or removing one root individual (its root row
+and all descendant rows) changes the release within the budget. Contribution
+is bounded hierarchically — \code{max_rows_per_person} gives the maximum children
+kept per parent for each child table (a single integer for all child tables,
+or a named list keyed by table name); the root cap is 1. Each table's variable
+marginals and a children-per-parent count histogram are measured under one
+exactly-composed budget; synthetic children copy the synthetic parent's
+surrogate key so referential integrity still holds by construction. Two
+first-cut limitations hold under DP: child variables are modelled by their own
+within-table marginals (cross-table statistical conditioning is not preserved,
+only referential integrity), and within-table longitudinal structure is not
+modelled. \code{constraints} are refused under DP. See
+\code{vignette("differential-privacy")}.
 }
 \examples{
 patients <- data.frame(id = 1:20,

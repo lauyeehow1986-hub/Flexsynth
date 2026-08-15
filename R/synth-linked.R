@@ -19,6 +19,22 @@
 #' [check_linkage()] to verify the result. Track A carries **no** formal privacy
 #' guarantee.
 #'
+#' Passing `privacy = dp_control(...)` selects differentially private synthesis
+#' (Track B) with a formal (\eqn{\epsilon}, \eqn{\delta}) guarantee at the
+#' **root-entity** grain: adding or removing one root individual (its root row
+#' and all descendant rows) changes the release within the budget. Contribution
+#' is bounded hierarchically — `max_rows_per_person` gives the maximum children
+#' kept per parent for each child table (a single integer for all child tables,
+#' or a named list keyed by table name); the root cap is 1. Each table's variable
+#' marginals and a children-per-parent count histogram are measured under one
+#' exactly-composed budget; synthetic children copy the synthetic parent's
+#' surrogate key so referential integrity still holds by construction. Two
+#' first-cut limitations hold under DP: child variables are modelled by their own
+#' within-table marginals (cross-table statistical conditioning is not preserved,
+#' only referential integrity), and within-table longitudinal structure is not
+#' modelled. `constraints` are refused under DP. See
+#' `vignette("differential-privacy")`.
+#'
 #' @param tables Named list of input `data.frame`s (one per table).
 #' @param structures Named list of one-sided formulas, one per table, giving
 #'   each table's nesting hierarchy (e.g. `~ id / admission_id`).
@@ -28,7 +44,7 @@
 #' @param method Synthesis method applied per variable unless overridden.
 #' @param constraints Optional cross-table constraints / rules. Constraint
 #'   enforcement currently applies to single-table [synth()] only; a message is
-#'   emitted if supplied here.
+#'   emitted if supplied here (Track A) and it is an error under `privacy` (DP).
 #' @param tuning A [synth_control()] object.
 #' @param privacy `NULL` for Track A, or a [dp_control()] object for Track B.
 #' @param m Number of synthetic dataset collections to produce.
@@ -81,20 +97,23 @@ synth_linked <- function(tables,
   validate_privacy(privacy)
   validate_m(m)
 
-  if (!is.null(privacy)) {
-    stop(paste0("synth_linked(): differentially private synthesis (Track B) is ",
-                "not available for linked multi-table data yet. DP currently ",
-                "targets flat / single-table releases via synth(); linked DP is ",
-                "a later roadmap step. See CLAUDE.md roadmap."),
+  if (!is.null(privacy) && !is.null(constraints)) {
+    stop(paste0("synth_linked(): `constraints` are not supported under ",
+                "differentially private synthesis (Track B). Rejection sampling ",
+                "would leak the constraint's data-dependent acceptance."),
          call. = FALSE)
   }
-  if (!is.null(constraints)) {
+  if (is.null(privacy) && !is.null(constraints)) {
     message("`constraints` are not enforced for linked synthesis yet; ignoring ",
             "them. (Single-table synth() enforces rule() constraints.)")
   }
   for (t in names(tables)) validate_structure(structures[[t]])
 
   hierarchy <- link_hierarchy(tables, structures, keys)
+
+  if (!is.null(privacy)) {
+    return(synth_linked_dp(tables, hierarchy, privacy, tuning, m, seed))
+  }
 
   if (!is.null(seed)) set.seed(seed)
   gen_fun <- function() synth_linked_once(tables, hierarchy, method, tuning)
