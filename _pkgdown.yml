@@ -1,0 +1,57 @@
+url: https://lauyeehow1986-hub.github.io/Flexsynth/
+
+template:
+  bootstrap: 5
+
+reference:
+  - title: Synthesis
+    desc: >
+      The two entry points. `synth()` handles flat, nested and longitudinal
+      single tables; `synth_linked()` synthesises several linked tables jointly.
+    contents:
+      - synth
+      - synth_linked
+
+  - title: Configuration
+    desc: Tuning knobs and the opt-in differential-privacy control.
+    contents:
+      - synth_control
+      - dp_control
+
+  - title: Methods
+    desc: The synthesis-method registry and how to extend it.
+    contents:
+      - register_method
+      - list_methods
+
+  - title: Constraints
+    desc: Row-wise and per-unit (temporal) logical constraints.
+    contents:
+      - rule
+
+  - title: Evaluation
+    desc: >
+      Utility diagnostics, empirical disclosure-risk measures, and referential
+      integrity checks for linked output.
+    contents:
+      - diagnose
+      - disclosure_risk
+      - check_linkage
+
+  - title: Package
+    contents:
+      - flexsynth-package
+
+articles:
+  - title: Get started
+    navbar: ~
+    contents:
+      - getting-started
+      - nested-longitudinal
+      - linked-cardiac
+      - differential-privacy
+
+news:
+  releases:
+    - text: Development version
+      href: news/index.html

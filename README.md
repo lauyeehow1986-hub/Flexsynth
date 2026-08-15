@@ -1,6 +1,9 @@
 # flexsynth
 
 <!-- badges: start -->
+[![R-CMD-check](https://github.com/lauyeehow1986-hub/Flexsynth/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/lauyeehow1986-hub/Flexsynth/actions/workflows/R-CMD-check.yaml)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 <!-- badges: end -->
 
 **Flexible synthetic data for nested, longitudinal and linked multi-table data.**
@@ -11,21 +14,44 @@ longitudinal data to wide. It has first-class support for **multi-table linked**
 data (e.g. patients → admissions → procedures / labs / meds) with referential
 integrity and cross-table relationships preserved.
 
-> ⚠️ **Status: early scaffold (Phase 0).** The public API and validation are in
-> place; the synthesis engine is not implemented yet. See
-> [`docs/roadmap.md`](docs/roadmap.md).
+It ships **two engines behind one interface**:
 
-## Two privacy tracks
-
-- **Track A — high-utility (default).** Sequential CART/forest synthesis. No
-  formal guarantee; ships honest empirical disclosure-risk diagnostics.
+- **Track A — high-utility (default).** A sequential conditional-synthesis
+  engine (CART, forest, conditional-inference trees, parametric methods) that
+  models within-unit longitudinal dependence and cross-table relationships. No
+  formal privacy guarantee; ships honest empirical disclosure-risk diagnostics
+  so residual risk can be judged.
 - **Track B — differentially private (opt-in).** `synth(..., privacy =
   dp_control(...))` gives a formal, **person-level** (ε, δ) guarantee for
-  governed release. Utility is lower and linkage support is initially limited —
-  by design.
+  governed release, with exact budget accounting.
 
-Synthetic data is **not** anonymisation, and Track A output must never be
-described as differentially private.
+> Synthetic data is **not** anonymisation, and Track A output must never be
+> described as differentially private.
+
+## Features
+
+- **Any structure, long format.** Flat, nested / longitudinal (repeated visits),
+  and linked multi-table data — declared with a compact `structure` formula
+  (`~ id / visit / test`).
+- **Longitudinal dependence.** Learned rows-per-unit count model, initial-state
+  model, and a lag-1 Markov transition model, so within-unit autocorrelation
+  across visits is preserved. Subject-invariant baseline columns are synthesised
+  once per unit and broadcast.
+- **Linked multi-table.** Hierarchy inferred from keys; parent-first generation
+  with foreign keys copied from the synthetic parent (referential integrity by
+  construction), zero-inflated children-per-parent counts, and cross-table
+  predictors. `check_linkage()` verifies key uniqueness and the absence of
+  orphans.
+- **Extensible methods.** `sample`, `cart`, `forest`, `ctree`, `norm`,
+  `normrank` built in; add your own with `register_method()`.
+- **Constraints / temporal logic.** `rule()` enforces row-wise or per-unit
+  constraints (e.g. `dbp <= sbp`, monotone length-of-stay) by unit-grain
+  rejection sampling.
+- **Diagnostics.** `diagnose()` (marginal fit, correlation-matrix difference,
+  propensity pMSE) and `disclosure_risk()` (replicated uniques,
+  distance-to-closest-record, membership-inference AUC).
+- **Performance.** Optional `data.table` fast-path and parallel replicates
+  (`synth_control(parallel = TRUE)`) with reproducible L'Ecuyer streams.
 
 ## Installation
 
@@ -34,30 +60,79 @@ described as differentially private.
 remotes::install_github("lauyeehow1986-hub/Flexsynth")
 ```
 
-## Usage (target API)
+The core engine depends only on base R. `rpart` / `ranger` / `partykit` unlock
+the tree methods; `data.table` unlocks the row-binding fast-path; all are
+Suggested.
+
+## Quick start
+
+### Single nested / longitudinal table
 
 ```r
 library(flexsynth)
 
-# Single nested/longitudinal table
-synth(data, structure = ~ id / visit / test_number, method = "cart", seed = 1)
-
-# Multiple linked tables, synthesised jointly
-synth_linked(
-  tables     = list(admissions = adm, procedures = proc, labs = lab),
-  structures = list(admissions = ~ id / admission_id,
-                    procedures = ~ id / admission_id / procedure_number,
-                    labs       = ~ id / admission_id / lab_number),
-  keys       = list(admissions = c("id", "admission_id"),
-                    procedures = c("id", "admission_id"),
-                    labs       = c("id", "admission_id")),
-  method = "cart", seed = 1
+df <- data.frame(
+  id    = rep(1:20, each = 2),
+  visit = rep(1:2, times = 20),
+  age   = rep(round(rnorm(20, 60, 8)), each = 2),
+  sbp   = round(rnorm(40, 130, 15))
 )
 
-# Opt into differential privacy (Track B)
-synth(data, structure = ~ id / visit,
-      privacy = dp_control(epsilon = 1, delta = 1e-6, unit = "person"))
+res <- synth(df, structure = ~ id / visit, method = "cart", seed = 1)
+head(as.data.frame(res))
 ```
+
+### Multiple linked tables, synthesised jointly
+
+```r
+patients <- data.frame(id = 1:50, sex = sample(c("F", "M"), 50, TRUE))
+adm <- do.call(rbind, lapply(patients$id, function(pid) {
+  n <- 1 + rpois(1, 0.6)
+  data.frame(id = pid, admission_id = seq_len(n), los = 1L + rpois(n, 3))
+}))
+
+res <- synth_linked(
+  tables     = list(patients = patients, admissions = adm),
+  structures = list(patients   = ~ id,
+                    admissions = ~ id / admission_id),
+  keys       = list(patients   = "id",
+                    admissions = c("id", "admission_id")),
+  seed = 1
+)
+syn <- as.list(res)
+check_linkage(syn, keys = list(patients = "id",
+                               admissions = c("id", "admission_id")))
+```
+
+### Diagnostics and disclosure risk
+
+```r
+syn <- as.data.frame(synth(df, structure = ~ id / visit, seed = 1))
+d <- diagnose(real = df, syn = syn)
+plot(d)                                  # overlaid marginals
+disclosure_risk(real = df, syn = syn)
+```
+
+### Opt into differential privacy (Track B)
+
+```r
+dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian",
+                 bounds = list(visit = c(1, 2), age = c(18, 100), sbp = c(60, 240)))
+dp_res <- synth(df, structure = ~ id, privacy = dp, seed = 1)
+dp_res$privacy                           # the (ε, δ) accounting record
+```
+
+DP mode produces a flat marginal release with exact Laplace / zCDP-Gaussian
+accounting. See `vignette("differential-privacy")` for scope and the honest
+utility trade-off.
+
+## Learn more
+
+- `vignette("getting-started")` — getting started
+- `vignette("nested-longitudinal")` — repeated-measures data
+- `vignette("linked-cardiac")` — multi-table linked synthesis
+- `vignette("differential-privacy")` — Track B
+- [`docs/roadmap.md`](docs/roadmap.md) — phased delivery and what's next
 
 ## Data & privacy
 

@@ -17,7 +17,7 @@ and multi-table \emph{linked} data.
 guarantee; ships empirical disclosure-risk diagnostics.
 \item \strong{Track B (opt-in):} differentially private synthesis via
 \code{\link[=dp_control]{dp_control()}}, with a person-level (\eqn{\epsilon}, \eqn{\delta})
-guarantee. See the package \code{CLAUDE.md} / roadmap for status.
+guarantee. See \code{vignette("differential-privacy")} for scope and accounting.
 }
 
 Synthetic data is not anonymisation. Track A output must never be described

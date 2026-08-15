@@ -9,7 +9,7 @@
 #'   guarantee; ships empirical disclosure-risk diagnostics.
 #' - **Track B (opt-in):** differentially private synthesis via
 #'   [dp_control()], with a person-level (\eqn{\epsilon}, \eqn{\delta})
-#'   guarantee. See the package `CLAUDE.md` / roadmap for status.
+#'   guarantee. See `vignette("differential-privacy")` for scope and accounting.
 #'
 #' Synthetic data is not anonymisation. Track A output must never be described
 #' as differentially private.

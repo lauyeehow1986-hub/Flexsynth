@@ -113,5 +113,18 @@ engine; Track B is the opt-in differentially private engine.
   data-independent / DP-estimated bin edges so discretisation adds no
   unaccounted leakage.
 
-## Phase 8 — polish
-- API review, README / pkgdown, performance pass, CRAN-readiness.
+## Phase 8 — polish  *(done)*
+- [x] API review: exported signatures are symmetric across `synth()` /
+      `synth_linked()`; every exported object documents `\value` and `\examples`.
+- [x] README rewritten to reflect the finished engine (Phases 1-7) with runnable
+      examples and CI / lifecycle / license badges (the stale "Phase 0 scaffold,
+      engine not implemented" notice is gone).
+- [x] `pkgdown` site config (`_pkgdown.yml`) with a grouped reference index and
+      an articles listing for the four vignettes.
+- [x] CRAN-readiness: `cran-comments.md` added; standard `R CMD check` is clean
+      (0/0/0) with vignettes built. The `--as-cran` NOTEs (new submission; a
+      local no-pandoc note; a transient empty `NULL` directory created only by
+      the `--as-cran` example driver, not by any package code) are documented.
+- Future: a data-independent / DP-estimated discretisation so Track B adds no
+  unaccounted leakage; the linked-data and longitudinal DP extensions listed
+  under Phase 7; and CRAN submission once a stable `0.1.0` API is tagged.

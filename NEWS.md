@@ -104,3 +104,10 @@
       the data range with a warning unless supplied publicly via `bounds`; that
       step is excluded from the (\eqn{\epsilon}, \eqn{\delta}) accounting. See
       `vignette("differential-privacy")`.
+* **Phase 8 — polish.** Documentation and release preparation, no behaviour
+  change. The README now reflects the finished engine (Phases 1-7) with runnable
+  examples and CI / lifecycle / license badges; a grouped `pkgdown` reference
+  index (`_pkgdown.yml`) and `cran-comments.md` were added; the package-level
+  help now points to `vignette("differential-privacy")` instead of internal
+  developer notes. Standard `R CMD check` is clean (0 errors / 0 warnings /
+  0 notes) with all four vignettes built.

@@ -7,3 +7,5 @@
 ^LICENSE\.md$
 ^README\.Rmd$
 ^\.gitignore$
+^_pkgdown\.yml$
+^cran-comments\.md$
