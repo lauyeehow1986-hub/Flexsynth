@@ -1,0 +1,17 @@
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.Rbuildignore.bak
+
+# build artefacts
+*.tar.gz
+*.Rcheck/
+/doc/
+/Meta/
+
+# OS / editor
+.DS_Store
+Thumbs.db
