@@ -321,18 +321,63 @@ three-level hierarchy chains it: a grandchild conditions on its already-conditio
 parent. Only the *immediate* parent conditions a child; deeper ancestors reach it
 through the parent's synthesised values, as in Track A.
 
-Remaining limitation under DP: within-table longitudinal (Markov) structure is not
-modelled for a linked table. Constraints are refused, as elsewhere under DP.
+Only the *immediate* parent conditions a child; deeper ancestors reach it through
+the parent's synthesised values, as in Track A. Constraints are refused, as
+elsewhere under DP.
+
+### Modelling a child table's rows over time
+
+When a child table's rows are a *time series* within each parent unit — repeated
+visits ordered by the child's own key index — `dp_control(longitudinal = TRUE)`
+(or a vector of child-table names) models them as a within-unit **DP Markov
+trajectory** instead of exchangeable records. The children-per-parent count model
+doubles as the trajectory-length model; an initial-state model is measured over
+each unit's first (earliest) child row; and a first-order transition matrix
+$P(v_t \mid v_{t-1})$ is measured per variable over consecutive within-unit rows:
+
+```{r linked-longi}
+set.seed(1)
+visits <- do.call(rbind, lapply(patients$id, function(pid) {
+  k  <- 2L + rpois(1, 1.2)
+  st <- character(k); st[1] <- sample(c("stable", "worse"), 1)
+  for (i in 2:k) st[i] <- if (runif(1) < 0.85) st[i - 1]
+                          else setdiff(c("stable", "worse"), st[i - 1])
+  data.frame(id = pid, visit_num = seq_len(k),
+             status = factor(st, levels = c("stable", "worse")))
+}))
+
+dp_longi <- dp_control(
+  epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+  max_rows_per_person = c(visits = 6), longitudinal = "visits",
+  domain = "public", bounds = list(age = c(18, 100)))
+
+res_longi <- synth_linked(
+  tables     = list(patients = patients, visits = visits),
+  structures = list(patients = ~ id, visits = ~ id / visit_num),
+  keys       = list(patients = "id", visits = c("id", "visit_num")),
+  privacy    = dp_longi, seed = 1)
+res_longi$privacy
+```
+
+The accounting lists `visits` as `DP Markov over rows`. The transition histograms
+have person-sensitivity `path_cap[parent] * (branching_cap - 1)` while the
+initial-state marginals sit at the parent path cap — heterogeneous, but folded into
+the same exact $(\epsilon, \delta)$. Over-cap units are prefix-truncated in temporal
+order so their consecutive pairs stay intact. This keeps a patient's status
+*trending* across visits, the autocorrelation an exchangeable child would drop. A
+longitudinally-modelled table is not simultaneously `cross_table`-conditioned — it
+conditions on its own past, not the parent.
 
 ## What Track B does *not* do (yet)
 
-- **Cross-table conditioning beyond the immediate parent**, and within-table
-  longitudinal structure for a linked child, are not modelled;
+- **Cross-table conditioning beyond the immediate parent** is not modelled;
   `cross_table = TRUE` conditions each child on its immediate parent only.
+- **Cross-table conditioning *and* longitudinal transitions on the same child
+  table** are mutually exclusive — a child is modelled one way or the other.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
 - Publicly-declared baseline columns (held exactly constant within a person
-  under DP) are not yet supported — see the longitudinal note above.
+  under the DP Markov model) are not yet supported.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

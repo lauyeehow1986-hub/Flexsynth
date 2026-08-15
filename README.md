@@ -129,8 +129,10 @@ Laplace / zCDP-Gaussian accounting. For a linked release,
 `dp_control(cross_table = TRUE)` additionally conditions each child table's
 variables on the synthetic parent's attributes (measured parent-by-child joints,
 composed into the same budget), so cross-table dependence survives — not just the
-key link. See `vignette("differential-privacy")` for scope and the honest utility
-trade-off.
+key link; and `dp_control(longitudinal = TRUE)` models a child table's repeated
+rows as a within-unit DP Markov trajectory (initial-state + per-variable
+transitions), so within-unit autocorrelation across visits survives too. See
+`vignette("differential-privacy")` for scope and the honest utility trade-off.
 
 ## Learn more
 

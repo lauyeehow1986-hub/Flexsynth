@@ -76,6 +76,26 @@
 #'   (\eqn{\epsilon}, \eqn{\delta})); `FALSE` (default) keeps child variables on
 #'   their own within-table marginals. Ignored by flat / longitudinal `synth()`
 #'   releases, which have no parent table.
+#' @param longitudinal Linked DP only ([synth_linked()]). Model a child table's
+#'   repeated rows as a within-unit time series under DP, instead of exchangeable
+#'   records: for such a table the children-per-parent count model doubles as a
+#'   trajectory-length model, an initial-state model is measured over each unit's
+#'   first (temporally earliest) child row, and a first-order Markov transition
+#'   matrix \eqn{P(v_t \mid v_{t-1})} is measured per variable over consecutive
+#'   within-unit rows (ordered by the child's own key index). Sensitivities differ
+#'   by histogram — initial marginals at the parent's path cap, transitions at
+#'   `path_cap[parent] * (branching_cap - 1)` — and fold into the same exact
+#'   (\eqn{\epsilon}, \eqn{\delta}) budget. Pass `TRUE` to model every eligible
+#'   child table (a child with a branching cap \eqn{\ge} 2 and at least one
+#'   variable), or a character vector of child-table names to model only those.
+#'   The child's branching cap in `max_rows_per_person` bounds the transition
+#'   sensitivity, so it must be \eqn{\ge} 2 for a named table, and the prefix of
+#'   that many rows is kept in temporal order. A longitudinally-modelled table is
+#'   not simultaneously `cross_table`-conditioned (it conditions on its own past,
+#'   not the parent); if both name it, `longitudinal` wins for that table. `FALSE`
+#'   (default) treats child rows as exchangeable. Ignored by flat / longitudinal
+#'   `synth()` releases (which pick the DP Markov engine straight from the
+#'   `structure` formula).
 #' @param bins Number of equal-width bins used to discretise each numeric
 #'   variable (default 12). Finer grids sharpen one-way marginals but make the
 #'   noisy two-way marginals used by `dependence = "tree"` weaker per cell, so a
@@ -108,6 +128,7 @@ dp_control <- function(epsilon,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
                        cross_table = FALSE,
+                       longitudinal = FALSE,
                        bins = 12L,
                        bounds = NULL,
                        domain = c("dp", "public", "data"),
@@ -154,6 +175,14 @@ dp_control <- function(epsilon,
       is.na(cross_table)) {
     stop("`cross_table` must be a single TRUE or FALSE.", call. = FALSE)
   }
+  long_ok <- (is.logical(longitudinal) && length(longitudinal) == 1L &&
+                !is.na(longitudinal)) ||
+    (is.character(longitudinal) && length(longitudinal) >= 1L &&
+       !anyNA(longitudinal) && all(nzchar(longitudinal)))
+  if (!long_ok) {
+    stop(paste0("`longitudinal` must be a single TRUE/FALSE, or a character ",
+                "vector of child-table names (for linked DP)."), call. = FALSE)
+  }
   if (!is.numeric(bins) || length(bins) != 1L || is.na(bins) || bins < 2 ||
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
@@ -185,6 +214,7 @@ dp_control <- function(epsilon,
       mechanism = mechanism,
       dependence = dependence,
       cross_table = cross_table,
+      longitudinal = longitudinal,               # FALSE, TRUE, or table names
       bins = as.integer(bins),
       bounds = bounds,
       domain = domain,
@@ -204,6 +234,11 @@ print.dp_control <- function(x, ...) {
   cat("  dependence:", x$dependence, "\n")
   if (isTRUE(x$cross_table))
     cat("  cross-table: parent-conditioned child vars (linked DP)\n")
+  if (isTRUE(x$longitudinal))
+    cat("  longitudinal: DP Markov over child rows, all tables (linked DP)\n")
+  else if (is.character(x$longitudinal))
+    cat("  longitudinal: DP Markov over child rows of",
+        paste(x$longitudinal, collapse = ", "), "(linked DP)\n")
   cat("  bins      :", x$bins, "\n")
   cat("  domain    :", x$domain,
       if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),

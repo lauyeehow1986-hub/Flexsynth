@@ -12,6 +12,7 @@ dp_control(
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
   cross_table = FALSE,
+  longitudinal = FALSE,
   bins = 12L,
   bounds = NULL,
   domain = c("dp", "public", "data"),
@@ -60,6 +61,27 @@ Costs extra budget (the added joints compose into the same
 (\eqn{\epsilon}, \eqn{\delta})); \code{FALSE} (default) keeps child variables on
 their own within-table marginals. Ignored by flat / longitudinal \code{synth()}
 releases, which have no parent table.}
+
+\item{longitudinal}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). Model a child table's
+repeated rows as a within-unit time series under DP, instead of exchangeable
+records: for such a table the children-per-parent count model doubles as a
+trajectory-length model, an initial-state model is measured over each unit's
+first (temporally earliest) child row, and a first-order Markov transition
+matrix \eqn{P(v_t \mid v_{t-1})} is measured per variable over consecutive
+within-unit rows (ordered by the child's own key index). Sensitivities differ
+by histogram — initial marginals at the parent's path cap, transitions at
+\code{path_cap[parent] * (branching_cap - 1)} — and fold into the same exact
+(\eqn{\epsilon}, \eqn{\delta}) budget. Pass \code{TRUE} to model every eligible
+child table (a child with a branching cap \eqn{\ge} 2 and at least one
+variable), or a character vector of child-table names to model only those.
+The child's branching cap in \code{max_rows_per_person} bounds the transition
+sensitivity, so it must be \eqn{\ge} 2 for a named table, and the prefix of
+that many rows is kept in temporal order. A longitudinally-modelled table is
+not simultaneously \code{cross_table}-conditioned (it conditions on its own past,
+not the parent); if both name it, \code{longitudinal} wins for that table. \code{FALSE}
+(default) treats child rows as exchangeable. Ignored by flat / longitudinal
+\code{synth()} releases (which pick the DP Markov engine straight from the
+\code{structure} formula).}
 
 \item{bins}{Number of equal-width bins used to discretise each numeric
 variable (default 12). Finer grids sharpen one-way marginals but make the

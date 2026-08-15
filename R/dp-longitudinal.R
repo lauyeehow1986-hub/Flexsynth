@@ -66,6 +66,39 @@ dp_draw_lengths <- function(Lprob, n_persons, k) {
   lens
 }
 
+# Build a code matrix for trajectories laid out contiguously per unit, whose
+# within-unit positions are `ppos` (each unit's rows are consecutive and its
+# positions run 1..len in temporal order). The first row of each unit is drawn
+# from `init_model`; every later row steps each variable through its transition
+# matrix `tran[[vi]]` conditioned on the same unit's previous-position code. Used
+# by both the flat DP longitudinal engine and a longitudinally-modelled linked
+# child table. `vars` fixes the column order (and matches `tran`'s order).
+dp_markov_codes <- function(init_model, tran, ppos, vars) {
+  nV <- length(vars)
+  N  <- length(ppos)
+  cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
+  if (!N) return(cmat)
+  frows <- which(ppos == 1L)
+  cmat[frows, ] <- dp_sample_codes(init_model, length(frows))
+  tmax <- max(ppos)
+  for (tt in seq_len(tmax)[-1L]) {           # t = 2, 3, ...
+    rows_t <- which(ppos == tt)
+    if (!length(rows_t)) next
+    prv <- rows_t - 1L                        # previous position, same unit
+    for (vi in seq_len(nV)) {
+      condv <- tran[[vi]]
+      pv <- cmat[prv, vi]
+      child <- integer(length(rows_t))
+      for (a in unique(pv)) {
+        sel <- which(pv == a)
+        child[sel] <- dp_sample_cat(length(sel), condv[a, ])
+      }
+      cmat[rows_t, vi] <- child
+    }
+  }
+  cmat
+}
+
 # Regenerate a structural index column as the within-unit position, matching the
 # original column's type (integer / numeric / factor). Factor levels are indexed
 # by position and clamped to the available levels.
@@ -209,27 +242,8 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
     np <- length(lens)
     person <- rep(seq_len(np), lens)
     ppos <- sequence(lens)                    # 1..len within each person
-    N <- length(person)
 
-    cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
-    frows <- which(ppos == 1L)
-    cmat[frows, ] <- dp_sample_codes(init_model, length(frows))
-    tmax <- if (N) max(ppos) else 0L
-    for (t in seq_len(tmax)[-1L]) {           # t = 2, 3, ...
-      rows_t <- which(ppos == t)
-      if (!length(rows_t)) next
-      prv <- rows_t - 1L                      # previous position, same person
-      for (vi in seq_len(nV)) {
-        condv <- tran[[vi]]
-        pv <- cmat[prv, vi]
-        child <- integer(length(rows_t))
-        for (a in unique(pv)) {
-          sel <- which(pv == a)
-          child[sel] <- dp_sample_cat(length(sel), condv[a, ])
-        }
-        cmat[rows_t, vi] <- child
-      }
-    }
+    cmat <- dp_markov_codes(init_model, tran, ppos, vars)
 
     out <- dp_decode_frame(cmat, dom)
     out[[id]] <- person

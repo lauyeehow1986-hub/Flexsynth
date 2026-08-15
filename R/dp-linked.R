@@ -41,11 +41,16 @@
 # variables are modelled by their own within-table marginals - the synthetic child
 # links to a synthetic parent but is statistically independent of it.
 #
+# Within-table longitudinal structure is opt-in via dp_control(longitudinal = ...):
+# a child table's repeated rows are then modelled as a DP Markov trajectory over
+# the child's own key index (an initial-state model + per-variable transition
+# matrices), with the children-per-parent count model doubling as the length
+# model, so within-unit autocorrelation survives (see dp-linked-longitudinal.R).
+# A longitudinally-modelled table is not simultaneously cross-conditioned.
+#
 # Remaining scope (documented in the DP vignette): only the IMMEDIATE parent
 # conditions a child (deeper ancestors reach it through the parent's synthesised
-# values). Within-table longitudinal (Markov) structure is not modelled for a
-# linked table; the own index is regenerated positionally. Constraints and
-# `unit = "row"` are refused.
+# values). Constraints and `unit = "row"` are refused.
 
 # Resolve the branching cap for one table from dp$max_rows_per_person, which is
 # either a single integer (applied to every child table) or a named integer
@@ -97,10 +102,13 @@ dp_table_vars <- function(hierarchy, t, tables) {
 
 # Hierarchical, top-down contribution bounding. For each child table (parents
 # first) drop rows orphaned by an already-capped parent, then keep at most
-# `cap_t` children per surviving parent unit (random within the over-cap group).
-# Guarantees each entity owns <= path_cap[T] rows of T and <= path_cap[parent]
-# units of parent(T). Returns the capped tables and per-table dropped counts.
-dp_cap_hierarchy <- function(tables, hierarchy, caps) {
+# `cap_t` children per surviving parent unit. Over-cap units are trimmed at
+# random, except for longitudinal tables (`longi[[t]]` TRUE) where the
+# temporally-first `cap_t` rows (by the own key index) are kept as a contiguous
+# prefix so consecutive-pair transitions are not corrupted. Guarantees each entity
+# owns <= path_cap[T] rows of T and <= path_cap[parent] units of parent(T).
+# Returns the capped tables and per-table dropped counts.
+dp_cap_hierarchy <- function(tables, hierarchy, caps, longi = NULL) {
   capped  <- tables
   dropped <- stats::setNames(integer(length(hierarchy$names)), hierarchy$names)
   for (t in hierarchy$order) {
@@ -108,13 +116,18 @@ dp_cap_hierarchy <- function(tables, hierarchy, caps) {
     if (is.na(p)) next                       # root: key unique -> 1 row / entity
     fk    <- hierarchy$fk[[t]]
     cap_t <- caps$local[[t]]
+    is_long <- isTRUE(longi[[t]])
+    own <- hierarchy$own[[t]]
     ck <- key_string(capped[[t]], fk)
     pk <- key_string(capped[[p]], fk)        # surviving parent units
     idx <- which(ck %in% pk)                 # drop orphans from earlier capping
     groups <- split(idx, ck[idx])
     keep <- unlist(lapply(groups, function(rows) {
       if (length(rows) <= cap_t) rows
-      else sort(rows[sample.int(length(rows), cap_t)])
+      else if (is_long) {                    # keep the temporal prefix
+        o <- order(capped[[t]][[own]][rows])
+        sort(rows[o[seq_len(cap_t)]])
+      } else sort(rows[sample.int(length(rows), cap_t)])
     }), use.names = FALSE)
     keep <- sort(keep)
     dropped[[t]] <- nrow(capped[[t]]) - length(keep)
@@ -178,24 +191,31 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
 
   caps <- dp_linked_caps(hierarchy, dp)
 
-  # Structural guard: a table may only nest along its key path. A nesting index
-  # that is not part of the key means genuine within-table longitudinal structure
-  # (e.g. ~ id / admission_id / visit with key c(id, admission_id)), which would
-  # need a within-table DP Markov model - not modelled under linked DP yet.
+  # Which child tables are modelled as within-unit DP Markov trajectories (opt-in
+  # via dp_control(longitudinal = ...)). Resolved before capping so those tables
+  # are prefix-truncated in temporal order, not subsampled at random.
+  use_long <- dp_resolve_longitudinal(dp, hierarchy, caps, tables)
+
+  # Structural guard: a table may only nest along its key path plus (for a
+  # longitudinal table) its own temporal index. A nesting index that is neither
+  # part of the key nor the own index means a deeper within-table structure that
+  # is not modelled under linked DP - the own-key-index Markov model covers the
+  # common repeated-measures case.
   for (t in order) {
     extra <- setdiff(hierarchy$structure[[t]]$nested, hierarchy$keys[[t]])
     if (length(extra)) {
       stop(sprintf(paste0(
         "linked DP: table '%s' has a nesting index (%s) outside its key (%s). ",
-        "Within-table longitudinal structure is not modelled under linked DP ",
-        "yet; drop the extra index or model that table on its own with synth()."),
+        "A deeper within-table structure is not modelled under linked DP; drop ",
+        "the extra index, or for repeated measures key the table by its own ",
+        "temporal index and set dp_control(longitudinal = ...)."),
         t, paste(extra, collapse = "/"),
         paste(hierarchy$keys[[t]], collapse = ", ")), call. = FALSE)
     }
   }
 
   # Cap the whole hierarchy top-down, then work on the capped tables.
-  capped_res <- dp_cap_hierarchy(tables, hierarchy, caps)
+  capped_res <- dp_cap_hierarchy(tables, hierarchy, caps, longi = use_long)
   cdata <- capped_res$tables
   dropped <- capped_res$dropped
 
@@ -216,33 +236,55 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
   }
 
   # Which child tables condition on their parent (cross-table DP): opt-in, needs a
-  # modellable immediate parent and >= 1 own variable. Computed once so the
-  # composition and the fitted models agree exactly on what is measured.
+  # modellable immediate parent and >= 1 own variable, and is not superseded by a
+  # longitudinal model on the same table (which conditions on its own past, not
+  # the parent). Computed once so composition and the fitted models agree exactly.
   use_cross <- stats::setNames(logical(length(order)), order)
   for (t in order) {
     p <- hierarchy$parent[[t]]
-    use_cross[[t]] <- isTRUE(dp$cross_table) && !is.na(p) &&
+    use_cross[[t]] <- isTRUE(dp$cross_table) && !use_long[[t]] && !is.na(p) &&
       length(vars[[t]]) > 0L && length(vars[[p]]) > 0L
   }
-  n_var_marg_t <- function(t) {
-    if (use_cross[[t]])
-      dp_child_nvarmarg(length(vars[[t]]), length(vars[[hierarchy$parent[[t]]]]), dp)
-    else dp_n_var_marg(length(vars[[t]]), dp)
+
+  # Per-table VARIABLE-model release: total L1, summed squared L2, and histogram
+  # count. A longitudinal child releases initial-state marginals (at the parent
+  # path cap) plus one transition matrix per variable (at parent path cap *
+  # (branching cap - 1)); other tables release plain / cross-conditioned variable
+  # marginals at their own path cap. The children-per-parent count histogram is
+  # added separately below (it doubles as the length model for longitudinal
+  # tables, so no extra length histogram is charged).
+  var_release <- function(t) {
+    nC <- length(vars[[t]])
+    if (use_long[[t]]) {
+      pcp <- as.numeric(caps$path[[hierarchy$parent[[t]]]])
+      lc  <- as.numeric(caps$local[[t]])
+      ni  <- dp_longi_n_init(nC, dp)
+      ts  <- pcp * (lc - 1)                                # transition sensitivity
+      list(l1 = ni * pcp + nC * ts,
+           sq = ni * pcp^2 + nC * ts^2,
+           nhist = as.integer(ni + nC))
+    } else {
+      pc  <- as.numeric(caps$path[[t]])
+      nvm <- if (use_cross[[t]])
+        dp_child_nvarmarg(nC, length(vars[[hierarchy$parent[[t]]]]), dp)
+      else dp_n_var_marg(nC, dp)
+      list(l1 = nvm * pc, sq = nvm * pc^2, nhist = as.integer(nvm))
+    }
   }
 
   # ---- Exact composition over the whole release ---------------------------
   # total L1 (Laplace) and summed squared L2 (Gaussian zCDP) across every
   # histogram: root/child variable marginals (incl. parent-by-child joints when
-  # cross_table) + child count histograms.
+  # cross_table, or initial-state + transitions when longitudinal) + child count
+  # histograms.
   total_l1 <- 0
   sum_sq   <- 0
   n_hist   <- 0L
   for (t in order) {
-    pc  <- as.numeric(caps$path[[t]])
-    nvm <- n_var_marg_t(t)
-    total_l1 <- total_l1 + nvm * pc
-    sum_sq   <- sum_sq   + nvm * pc^2
-    n_hist   <- n_hist + as.integer(nvm)
+    vr <- var_release(t)
+    total_l1 <- total_l1 + vr$l1
+    sum_sq   <- sum_sq   + vr$sq
+    n_hist   <- n_hist + vr$nhist
     if (!is.na(hierarchy$parent[[t]])) {
       cs <- as.numeric(caps$path[[hierarchy$parent[[t]]]])   # count sensitivity
       total_l1 <- total_l1 + cs
@@ -287,20 +329,27 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
     nbins <- if (length(vt)) vapply(vt, function(v) dom[[v]]$nbin, integer(1)) else integer(0)
     var_model  <- NULL
     cross_model <- NULL
+    long_model  <- NULL
     if (length(vt)) {
-      codes <- stats::setNames(
-        lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
-      if (use_cross[[t]]) {
-        p <- hierarchy$parent[[t]]
-        pvars <- fit[[p]]$vars
-        parent_dom <- fit[[p]]$dom
-        pctx <- dp_parent_ctx_codes(cdata, hierarchy, t, p, parent_dom, pvars)
-        parent_nbins <- stats::setNames(
-          vapply(pvars, function(u) parent_dom[[u]]$nbin, integer(1)), pvars)
-        cross_model <- dp_fit_child_cross(codes, nbins, pctx, parent_nbins,
-                                          dp, calib)
+      if (use_long[[t]]) {
+        long_model <- dp_fit_child_longitudinal(
+          cdata[[t]], hierarchy$fk[[t]], hierarchy$own[[t]], dom, vt, nbins,
+          dp, calib)
       } else {
-        var_model <- dp_fit_model(codes, nbins, dp, calib)
+        codes <- stats::setNames(
+          lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
+        if (use_cross[[t]]) {
+          p <- hierarchy$parent[[t]]
+          pvars <- fit[[p]]$vars
+          parent_dom <- fit[[p]]$dom
+          pctx <- dp_parent_ctx_codes(cdata, hierarchy, t, p, parent_dom, pvars)
+          parent_nbins <- stats::setNames(
+            vapply(pvars, function(u) parent_dom[[u]]$nbin, integer(1)), pvars)
+          cross_model <- dp_fit_child_cross(codes, nbins, pctx, parent_nbins,
+                                            dp, calib)
+        } else {
+          var_model <- dp_fit_model(codes, nbins, dp, calib)
+        }
       }
     }
     count_prob <- NULL
@@ -316,7 +365,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
       count_prob <- dp_normalise(pmax(calib$add_noise(hist), 0))
     }
     fit[[t]] <- list(vars = vt, dom = dom, var_model = var_model,
-                     cross_model = cross_model, count_prob = count_prob)
+                     cross_model = cross_model, long_model = long_model,
+                     count_prob = count_prob)
   }
 
   # ---- Generation ---------------------------------------------------------
@@ -354,11 +404,14 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
           next
         }
         rep_rows <- rep(which(keep), counts[keep])
+        ppos <- sequence(counts[keep])          # 1..count within each unit
         skel <- parent_syn[rep_rows, fk, drop = FALSE]
-        skel[[own_col]] <- dp_index_as_position(tables[[t]][[own_col]],
-                                                sequence(counts[keep]))
+        skel[[own_col]] <- dp_index_as_position(tables[[t]][[own_col]], ppos)
         if (length(f$vars)) {
-          if (!is.null(f$cross_model)) {
+          if (!is.null(f$long_model)) {
+            lm <- f$long_model
+            cmat <- dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars)
+          } else if (!is.null(f$cross_model)) {
             pvars <- f$cross_model$pvars
             pctx <- stats::setNames(
               lapply(pvars, function(u) codes[[p]][rep_rows, u]), pvars)
@@ -390,8 +443,9 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
          parent = if (is.na(p)) NA_character_ else p,
          local_cap = caps$local[[t]],
          path_cap = caps$path[[t]],
-         n_var_marg = as.integer(n_var_marg_t(t)),
+         n_var_marg = var_release(t)$nhist,
          cross = use_cross[[t]],
+         longitudinal = use_long[[t]],
          count_sensitivity = if (is.na(p)) NA_integer_ else caps$path[[p]],
          rows_dropped = dropped[[t]])
   })

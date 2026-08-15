@@ -1,5 +1,23 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: linked + longitudinal DP.** `dp_control(longitudinal = TRUE)` — or a
+  character vector of child-table names — makes a linked DP release model a child
+  table's repeated rows as a within-unit time series instead of exchangeable
+  records. For such a table the children-per-parent count model doubles as a
+  trajectory-length model, an initial-state model is measured over each parent
+  unit's first (temporally earliest) child row, and a first-order Markov
+  transition matrix \eqn{P(v_t \mid v_{t-1})} is measured per variable over
+  consecutive within-unit rows (ordered by the child's own key index). Their
+  person-sensitivities differ — initial marginals at the parent's path cap,
+  transitions at `path_cap[parent] * (branching_cap - 1)` — and fold into the same
+  exactly-composed (\eqn{\epsilon}, \eqn{\delta}) budget as the rest of the
+  release; over-cap units are prefix-truncated in temporal order so consecutive
+  pairs stay intact. This recovers within-unit autocorrelation (a patient's values
+  trending across visits) that the exchangeable model drops. A longitudinally
+  modelled table is not simultaneously `cross_table`-conditioned; `longitudinal =
+  FALSE` (default) is unchanged, and the flag is inert for flat / longitudinal
+  `synth()` releases (which pick the DP Markov engine from the `structure`
+  formula).
 * **Track B: cross-table conditioning under DP.** `dp_control(cross_table =
   TRUE)` makes a linked DP release model each child table's variables on the
   **synthetic parent's** attributes, not just link to it. For every child table

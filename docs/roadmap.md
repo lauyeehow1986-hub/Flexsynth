@@ -136,14 +136,28 @@ engine; Track B is the opt-in differentially private engine.
   parent variable only); the synthetic parent's drawn value conditions the child
   draw, chaining across three levels. Immediate-parent only (deeper ancestors
   reach a child through its parent). `cross_table = FALSE` (default) unchanged.
+- [x] **Combining linked + longitudinal DP** (`dp_control(longitudinal = TRUE)`, or
+  a vector of child-table names). A linked child table's repeated rows are modelled
+  as a within-unit first-order Markov trajectory instead of exchangeable records:
+  the children-per-parent count model doubles as the trajectory-length model, an
+  initial-state model is measured over each unit's first (temporally earliest)
+  child row, and one transition matrix per variable is measured over consecutive
+  within-unit rows (ordered by the child's own key index). Sensitivities are
+  heterogeneous — initial marginals at the parent path cap, transitions at
+  path_cap[parent] * (branching_cap - 1) — and fold into the same exact
+  composition; over-cap units are prefix-truncated in temporal order so consecutive
+  pairs stay intact. A longitudinally-modelled table is not simultaneously
+  cross-conditioned. `longitudinal = FALSE` (default) unchanged; inert for flat /
+  longitudinal `synth()`.
 - Future: budget-efficient structure learning (measure structure cheaply, then only
   the chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
   greedy degree>1 networks and AIM-style adaptive marginal selection;
   publicly-declared baseline columns held exactly constant within a person under
   the DP Markov model (currently every non-index column is time-varying);
-  higher-order / cross-variable DP transitions; combining linked + longitudinal DP
-  (a within-table Markov model for a linked child). (Data-independent /
-  DP-estimated bin edges are done; see the post-Phase-8 item below.)
+  higher-order / cross-variable DP transitions; combining cross-table conditioning
+  *and* longitudinal transitions on the same child table (currently mutually
+  exclusive per table). (Data-independent / DP-estimated bin edges are done; see
+  the post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -166,6 +180,7 @@ engine; Track B is the opt-in differentially private engine.
   rigorous modes.
 - Future: the further DP extensions listed under Phase 7 (budget-efficient
   structure learning, baseline columns held constant, higher-order transitions,
-  combining linked + longitudinal DP); DP set-union for discovering `character`
-  category sets under `domain = "dp"` (currently public factor levels are
-  required); and CRAN submission once a stable `0.1.0` API is tagged.
+  and combining cross-table conditioning with longitudinal transitions on one
+  child table); DP set-union for discovering `character` category sets under
+  `domain = "dp"` (currently public factor levels are required); and CRAN
+  submission once a stable `0.1.0` API is tagged.
