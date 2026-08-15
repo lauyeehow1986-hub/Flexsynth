@@ -22,10 +22,16 @@ engine; Track B is the opt-in differentially private engine.
 - [x] `visit_sequence`, per-variable method, and `proper` (posterior-predictive
       bootstrap) honoured from `synth_control()`.
 
-## Phase 2 — nested / longitudinal support
-- Learn structural distributions (rows per parent) instead of bootstrapping the
-  real skeleton; model within-unit temporal dependence for time-varying
-  variables (lagged predictors), so autocorrelation across visits is preserved.
+## Phase 2 — nested / longitudinal support  *(done)*
+- [x] Explicit learned rows-per-unit count model drives the synthetic skeleton
+      (`draw_counts()` / `synth_skeleton()`) instead of copying whole real units.
+- [x] Within-unit temporal dependence: initial-state model + Markov transition
+      model with lag-1 predictors of every time-varying variable, so
+      autocorrelation across visits is preserved.
+- [x] Unequal-length units supported; flat / subject-baseline behaviour
+      unchanged.
+- Future: covariate-conditioned counts and a fully order-consistent positional
+  index model (current count model matches the empirical size distribution).
 
 ## Phase 3 — linked multi-table engine (Track A)
 - `synth_linked()`: parent-first joint synthesis, consistent foreign keys,

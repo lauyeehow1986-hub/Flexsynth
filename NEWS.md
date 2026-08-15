@@ -13,3 +13,11 @@
   baseline columns are synthesised once per unit and broadcast; `visit_sequence`,
   per-variable methods, and `proper` synthesis are honoured. Added
   `as.data.frame()` / `print()` methods for `synth_result`.
+* **Phase 2 — nested / longitudinal support.** The synthetic skeleton is now
+  drawn from an explicit learned rows-per-unit count distribution (rather than
+  copying whole real units). Time-varying columns are synthesised with an
+  initial-state model plus a Markov transition model that conditions on the
+  previous row within the unit (lag-1 predictors of every time-varying
+  variable), so within-unit autocorrelation across visits is preserved. Units
+  of unequal length are supported; the flat and subject-baseline behaviour from
+  Phase 1 is unchanged.

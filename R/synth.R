@@ -18,9 +18,12 @@
 #' Columns that are constant within every real unit (baseline covariates such as
 #' age or sex) are detected automatically and synthesised **once per unit**, then
 #' broadcast across that unit's rows, so a synthetic subject stays internally
-#' consistent. Full within-unit temporal dependence for time-varying variables
-#' (e.g. this visit's value depending on the previous visit) is a later roadmap
-#' phase.
+#' consistent. Time-varying columns are synthesised with an initial-state model
+#' (first row of each unit) plus a Markov transition model that conditions on the
+#' previous row within the unit (lag-1 predictors), so autocorrelation across
+#' visits is preserved. The number of rows per unit is drawn from the learned
+#' count distribution and the structural-index sequence is regenerated for each
+#' synthetic unit.
 #'
 #' Passing `privacy = dp_control(...)` selects differentially private synthesis
 #' (Track B), which is a later roadmap phase.
