@@ -149,8 +149,20 @@ engine; Track B is the opt-in differentially private engine.
   pairs stay intact. A longitudinally-modelled table is not simultaneously
   cross-conditioned. `longitudinal = FALSE` (default) unchanged; inert for flat /
   longitudinal `synth()`.
-- Future: budget-efficient structure learning (measure structure cheaply, then only
-  the chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
+- [x] **Budget-efficient structure learning** (`dp_control(structure_frac = f)`,
+  flat `dependence = "tree"` release). Instead of measuring all \eqn{\binom{d}{2}}
+  pairwise marginals at full fidelity and discarding all but the tree's edges, a
+  fraction `f` of the marginal budget buys a cheap all-pairs scan used *only* to
+  select the Chow-Liu tree; the remaining `1 - f` then re-measures just the chosen
+  \eqn{d - 1} edges (plus the `d` one-ways). Structure selection tolerates noise
+  well, so concentrating the budget on the retained edges sharpens the conditionals,
+  increasingly so as `d` grows (for very small `d` the two passes are inert). The
+  scan and the re-measurement are two sequential releases that compose into the
+  same exact (\eqn{\epsilon}, \eqn{\delta}) — pure \eqn{\epsilon} adds, zCDP
+  \eqn{\rho} adds — alongside the domain-estimation slice. `structure_frac = NULL`
+  (default) keeps the single-pass fitter; inert for `dependence = "independent"`,
+  `d < 3`, and longitudinal / linked releases.
+- Future: PrivBayes
   greedy degree>1 networks and AIM-style adaptive marginal selection;
   publicly-declared baseline columns held exactly constant within a person under
   the DP Markov model (currently every non-index column is time-varying);
@@ -178,9 +190,10 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7 (budget-efficient
-  structure learning, baseline columns held constant, higher-order transitions,
-  and combining cross-table conditioning with longitudinal transitions on one
-  child table); DP set-union for discovering `character` category sets under
-  `domain = "dp"` (currently public factor levels are required); and CRAN
-  submission once a stable `0.1.0` API is tagged.
+- Future: the further DP extensions listed under Phase 7 (baseline columns held
+  constant, higher-order transitions, and combining cross-table conditioning with
+  longitudinal transitions on one child table); adaptive-selection structure
+  learning beyond the fixed Chow-Liu split (AIM-style); DP set-union for
+  discovering `character` category sets under `domain = "dp"` (currently public
+  factor levels are required); and CRAN submission once a stable `0.1.0` API is
+  tagged.

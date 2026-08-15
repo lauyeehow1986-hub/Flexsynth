@@ -63,6 +63,21 @@
 #' @param dependence Dependence structure of the generative model: `"tree"`
 #'   (default; a Chow-Liu tree over pairwise marginals) or `"independent"`
 #'   (one-way marginals only).
+#' @param structure_frac Budget-efficient structure learning for the flat
+#'   `dependence = "tree"` release ([synth()] with three or more variables).
+#'   `NULL` (default) measures all \eqn{\binom{d}{2}} pairwise marginals at full
+#'   fidelity and reuses them as both the Chow-Liu weights and the tree's
+#'   conditionals. A number in `(0, 1)` instead spends only that fraction of the
+#'   marginal budget on a cheap all-pairs scan used **solely** to select the tree,
+#'   then concentrates the remaining `1 - structure_frac` on re-measuring just the
+#'   \eqn{d - 1} chosen edges (plus the `d` one-way marginals) — so the budget
+#'   lands on the parameters that survive into the model instead of on pairs that
+#'   are discarded. Structure selection tolerates noise well, so a small slice
+#'   (e.g. `0.2`–`0.3`) usually sharpens the retained edges, more so as the number
+#'   of variables grows. Both passes compose into the same exact
+#'   (\eqn{\epsilon}, \eqn{\delta}) budget. Inert for `dependence = "independent"`,
+#'   for fewer than three variables (the tree is then trivial), and for
+#'   longitudinal / linked DP releases (which keep the single-pass fitter).
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -127,6 +142,7 @@ dp_control <- function(epsilon,
                        max_rows_per_person = NULL,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
+                       structure_frac = NULL,
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        bins = 12L,
@@ -171,6 +187,14 @@ dp_control <- function(epsilon,
                   "per table, for linked DP)."), call. = FALSE)
     }
   }
+  if (!is.null(structure_frac)) {
+    if (!is.numeric(structure_frac) || length(structure_frac) != 1L ||
+        is.na(structure_frac) || structure_frac <= 0 || structure_frac >= 1) {
+      stop("`structure_frac` must be NULL or a single number in (0, 1).",
+           call. = FALSE)
+    }
+    structure_frac <- as.numeric(structure_frac)
+  }
   if (!is.logical(cross_table) || length(cross_table) != 1L ||
       is.na(cross_table)) {
     stop("`cross_table` must be a single TRUE or FALSE.", call. = FALSE)
@@ -213,6 +237,7 @@ dp_control <- function(epsilon,
       max_rows_per_person = max_rows_per_person,   # NULL, integer, or named ints
       mechanism = mechanism,
       dependence = dependence,
+      structure_frac = structure_frac,          # NULL or number in (0, 1)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
       bins = as.integer(bins),
@@ -232,6 +257,9 @@ print.dp_control <- function(x, ...) {
   cat("  unit      :", x$unit, "\n")
   cat("  mechanism :", x$mechanism, "\n")
   cat("  dependence:", x$dependence, "\n")
+  if (!is.null(x$structure_frac))
+    cat("  structure : budget-efficient (", signif(x$structure_frac, 3),
+        " of budget selects the tree)\n", sep = "")
   if (isTRUE(x$cross_table))
     cat("  cross-table: parent-conditioned child vars (linked DP)\n")
   if (isTRUE(x$longitudinal))

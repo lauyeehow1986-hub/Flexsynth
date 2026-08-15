@@ -164,6 +164,29 @@ independent model has no correlation at all by construction. The gap between the
 tree and the real value is the honest price of the guarantee; a larger `epsilon`
 or a coarser `bins` narrows it.
 
+**Budget-efficient structure learning.** With `dependence = "tree"` the default
+fitter measures *every* pairwise marginal at full fidelity, then keeps only the
+\(d-1\) that end up in the Chow-Liu tree — so budget was spent measuring pairs the
+model discards. `structure_frac` splits the work instead: a small fraction of the
+marginal budget buys a deliberately rough all-pairs scan used *only* to pick the
+tree, and the rest is concentrated on re-measuring just the chosen edges. Because
+structure *selection* tolerates noise far better than the conditional *parameters*
+do, this sharpens the surviving edges — increasingly so as the number of variables
+grows (with only a handful it is roughly break-even, and it is inert below three).
+Both passes are reported and compose into the *same* exact budget — the cheap scan
+and the concentrated re-measurement are two sequential releases whose
+pure-\(\epsilon\) adds (or, for Gaussian, whose zCDP \(\rho\) adds):
+
+```{r structure-frac}
+dp_eff <- dp_control(epsilon = 6, mechanism = "laplace", dependence = "tree",
+                     bins = 8, bounds = b, structure_frac = 0.25)
+synth(real, ~ id, privacy = dp_eff, seed = 1)$privacy
+```
+
+The accounting line splits into the pairwise scans and the parameter marginals,
+and the per-cell noise is reported separately for each — the scan is noisier (it
+only has to rank dependencies), the parameters sharper.
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

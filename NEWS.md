@@ -1,5 +1,20 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: budget-efficient structure learning.** `dp_control(structure_frac =
+  f)` learns the flat `dependence = "tree"` Chow-Liu structure from a cheap
+  all-pairs scan that spends only the fraction `f` of the marginal budget, then
+  concentrates the remaining `1 - f` on re-measuring **only** the chosen tree's
+  \eqn{d - 1} edges (plus the `d` one-way marginals). The previous single-pass
+  fitter measured all \eqn{\binom{d}{2}} pairwise marginals at full fidelity and
+  discarded all but the tree's edges; because structure *selection* tolerates
+  noise far better than the *parameters* do, moving the bulk of the budget onto
+  the retained edges sharpens the conditionals — increasingly so as the number of
+  variables grows. Both passes compose into the same exact (\eqn{\epsilon},
+  \eqn{\delta}) budget (the cheap scan and the concentrated re-measurement are two
+  sequential releases whose pure-\eqn{\epsilon} adds / zCDP \eqn{\rho} adds).
+  `structure_frac = NULL` (default) keeps the single-pass behaviour; the knob is
+  inert for `dependence = "independent"`, for fewer than three variables, and for
+  longitudinal / linked DP releases.
 * **Track B: linked + longitudinal DP.** `dp_control(longitudinal = TRUE)` — or a
   character vector of child-table names — makes a linked DP release model a child
   table's repeated rows as a within-unit time series instead of exchangeable

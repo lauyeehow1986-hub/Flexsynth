@@ -36,6 +36,16 @@ dp_mutual_information <- function(joint) {
   max(mi, 0)
 }
 
+# Integer joint-count matrix of two code vectors, `a` as rows (1..na), `b` as
+# columns (1..nb); NA-paired rows dropped. Shared by the naive and the
+# budget-efficient tree fitters.
+dp_joint_counts <- function(a, b, na, nb) {
+  ok <- !is.na(a) & !is.na(b)
+  tt <- table(factor(a[ok], levels = seq_len(na)),
+              factor(b[ok], levels = seq_len(nb)))
+  matrix(as.integer(tt), na, nb)
+}
+
 # Maximum-weight spanning tree by Prim's algorithm, rooted at node 1. Returns a
 # list of directed c(parent, child) edges in an order where each edge's parent is
 # already reachable from the root (a valid sampling order).
@@ -58,11 +68,21 @@ dp_max_spanning_tree <- function(W) {
 }
 
 # Measure the noisy marginals and fit the generative model.
-dp_fit_model <- function(codes, nbins, dp, calib) {
+#
+# `calib` calibrates the noise for the released parameters (one-way marginals and,
+# for a tree, its conditional edges). `calib_struct` is optional: when supplied
+# (budget-efficient structure learning) the Chow-Liu tree is *selected* from a
+# separate, cheaper pass of all pairwise joints measured under `calib_struct`,
+# and then only the chosen tree's edges are re-measured under `calib` — so the
+# bulk of the budget lands on the parameters that survive into the model instead
+# of on all C(d, 2) pairs. When `calib_struct` is NULL (the default) the pairwise
+# joints are measured once under `calib` and reused for both structure and
+# parameters, exactly as before.
+dp_fit_model <- function(codes, nbins, dp, calib, calib_struct = NULL) {
   d <- length(codes)
   vars <- names(codes)
 
-  # One-way noisy counts (clipped nonneg).
+  # One-way noisy counts (clipped nonneg), measured under the parameter budget.
   c1 <- lapply(seq_len(d), function(i)
     pmax(calib$add_noise(tabulate(codes[[i]], nbins[i])), 0))
   names(c1) <- vars
@@ -74,30 +94,45 @@ dp_fit_model <- function(codes, nbins, dp, calib) {
                 marginals = lapply(c1, dp_normalise), n_est = n_est))
   }
 
-  # All pairwise noisy joints (i < j), reused for both structure and parameters.
-  joints <- matrix(list(), d, d)
-  W <- matrix(0, d, d)
-  for (i in seq_len(d - 1L)) for (j in (i + 1L):d) {
-    tab <- matrix(0L, nbins[i], nbins[j])
-    ok <- !is.na(codes[[i]]) & !is.na(codes[[j]])
-    idx <- cbind(codes[[i]][ok], codes[[j]][ok])
-    tt <- table(factor(idx[, 1L], levels = seq_len(nbins[i])),
-                factor(idx[, 2L], levels = seq_len(nbins[j])))
-    tab[] <- as.integer(tt)
-    noisy <- pmax(matrix(calib$add_noise(as.vector(tab)), nbins[i], nbins[j]), 0)
-    joints[[i, j]] <- noisy
-    W[i, j] <- W[j, i] <- dp_mutual_information(noisy)
+  if (is.null(calib_struct)) {
+    # Naive: one pass of all pairwise joints under `calib`, reused for the MST
+    # weights and the conditional parameters.
+    joints <- matrix(list(), d, d)
+    W <- matrix(0, d, d)
+    for (i in seq_len(d - 1L)) for (j in (i + 1L):d) {
+      tab <- dp_joint_counts(codes[[i]], codes[[j]], nbins[i], nbins[j])
+      noisy <- pmax(matrix(calib$add_noise(as.vector(tab)),
+                           nbins[i], nbins[j]), 0)
+      joints[[i, j]] <- noisy
+      W[i, j] <- W[j, i] <- dp_mutual_information(noisy)
+    }
+    edges <- dp_max_spanning_tree(W)
+    cond <- lapply(edges, function(e) {
+      p <- e[1L]; ch <- e[2L]
+      joint <- if (p < ch) joints[[p, ch]] else t(joints[[ch, p]])  # rows=parent
+      t(apply(joint, 1L, dp_normalise))               # P(child | parent)
+    })
+  } else {
+    # Budget-efficient: a cheap all-pairs scan under `calib_struct` picks the
+    # tree; only its edges are then re-measured under `calib`.
+    W <- matrix(0, d, d)
+    for (i in seq_len(d - 1L)) for (j in (i + 1L):d) {
+      tab <- dp_joint_counts(codes[[i]], codes[[j]], nbins[i], nbins[j])
+      rough <- pmax(matrix(calib_struct$add_noise(as.vector(tab)),
+                           nbins[i], nbins[j]), 0)
+      W[i, j] <- W[j, i] <- dp_mutual_information(rough)
+    }
+    edges <- dp_max_spanning_tree(W)
+    cond <- lapply(edges, function(e) {
+      p <- e[1L]; ch <- e[2L]                          # parent as rows
+      tab <- dp_joint_counts(codes[[p]], codes[[ch]], nbins[p], nbins[ch])
+      noisy <- pmax(matrix(calib$add_noise(as.vector(tab)),
+                           nbins[p], nbins[ch]), 0)
+      t(apply(noisy, 1L, dp_normalise))                # P(child | parent)
+    })
   }
 
-  edges <- dp_max_spanning_tree(W)
   # Root marginal = the one-way of node 1 (the Prim root).
-  cond <- lapply(edges, function(e) {
-    p <- e[1L]; ch <- e[2L]
-    joint <- if (p < ch) joints[[p, ch]] else t(joints[[ch, p]])  # rows=parent
-    # Row-normalise to P(child | parent); empty rows -> uniform.
-    t(apply(joint, 1L, dp_normalise))
-  })
-
   list(kind = "tree", vars = vars, nbins = nbins, edges = edges,
        cond = cond, root = 1L, root_marginal = dp_normalise(c1[[1L]]),
        marginals = lapply(c1, dp_normalise), n_est = n_est)
@@ -177,9 +212,13 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
       paste(missing_bound, collapse = ", ")), call. = FALSE)
   }
 
-  n_marginals <- length(vars) +
-    if (dp$dependence == "tree" && length(vars) > 1L)
-      length(vars) * (length(vars) - 1L) / 2L else 0L
+  d <- length(vars)
+  n_pairs <- if (dp$dependence == "tree" && d > 1L) d * (d - 1L) / 2L else 0L
+  # Budget-efficient structure learning: a separate cheap pairwise scan selects
+  # the tree, then only its d-1 edges (plus d one-ways) are re-measured. Trivial
+  # for < 3 variables, so it is inert there (and for the independent model).
+  use_learn <- !is.null(dp$structure_frac) && dp$dependence == "tree" && d >= 3L
+  n_marginals <- if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
 
   # Under domain = "dp", privately estimate bin edges for numeric variables that
   # have no public bounds, spending an accounted `domain_frac` slice of budget.
@@ -199,14 +238,33 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
                         eps_per_query = eps_q, frac = dp$domain_frac)
   }
 
-  calib <- dp_calibrate(dp, n_marginals, cap, budget_frac = marg_frac)
+  # Split the marginal budget between the (cheap) structure scan and the
+  # (concentrated) parameter re-measurement, or spend it all in one pass. Both
+  # slices compose exactly into the same (eps, delta) as the domain slice: pure
+  # eps adds; zCDP rho adds.
+  learn_info <- NULL
+  if (use_learn) {
+    n_struct <- n_pairs
+    n_param  <- 2L * d - 1L
+    calib_struct <- dp_calibrate(dp, n_struct, cap,
+                                 budget_frac = marg_frac * dp$structure_frac)
+    calib <- dp_calibrate(dp, n_param, cap,
+                          budget_frac = marg_frac * (1 - dp$structure_frac))
+    learn_info <- list(frac = dp$structure_frac, n_struct = n_struct,
+                       n_param = n_param,
+                       struct_noise = if (calib_struct$mechanism == "laplace")
+                         calib_struct$scale else calib_struct$sigma)
+  } else {
+    calib_struct <- NULL
+    calib <- dp_calibrate(dp, n_marginals, cap, budget_frac = marg_frac)
+  }
 
   dom <- dp_build_domain(cdata, vars, dp, est_bounds)
   nbins <- vapply(vars, function(v) dom[[v]]$nbin, integer(1))
   codes <- stats::setNames(
     lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
 
-  model <- dp_fit_model(codes, nbins, dp, calib)
+  model <- dp_fit_model(codes, nbins, dp, calib, calib_struct)
   n_syn <- if (!is.null(tuning$k)) max(1L, as.integer(round(tuning$k)))
            else model$n_est
 
@@ -219,7 +277,7 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   syn <- if (m == 1L) syns[[1L]] else syns
 
   acct <- new_dp_accounting(dp, calib, cap, n_marginals, vars, bounded$dropped,
-                            domain_info)
+                            domain_info, learn = learn_info)
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),

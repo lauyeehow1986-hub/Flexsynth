@@ -11,6 +11,7 @@ dp_control(
   max_rows_per_person = NULL,
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
+  structure_frac = NULL,
   cross_table = FALSE,
   longitudinal = FALSE,
   bins = 12L,
@@ -47,6 +48,22 @@ table, or a \strong{named} vector/list keyed by child-table name (e.g.
 \item{dependence}{Dependence structure of the generative model: \code{"tree"}
 (default; a Chow-Liu tree over pairwise marginals) or \code{"independent"}
 (one-way marginals only).}
+
+\item{structure_frac}{Budget-efficient structure learning for the flat
+\code{dependence = "tree"} release (\code{\link[=synth]{synth()}} with three or more variables).
+\code{NULL} (default) measures all \eqn{\binom{d}{2}} pairwise marginals at full
+fidelity and reuses them as both the Chow-Liu weights and the tree's
+conditionals. A number in \verb{(0, 1)} instead spends only that fraction of the
+marginal budget on a cheap all-pairs scan used \strong{solely} to select the tree,
+then concentrates the remaining \code{1 - structure_frac} on re-measuring just the
+\eqn{d - 1} chosen edges (plus the \code{d} one-way marginals) — so the budget
+lands on the parameters that survive into the model instead of on pairs that
+are discarded. Structure selection tolerates noise well, so a small slice
+(e.g. \code{0.2}–\code{0.3}) usually sharpens the retained edges, more so as the number
+of variables grows. Both passes compose into the same exact
+(\eqn{\epsilon}, \eqn{\delta}) budget. Inert for \code{dependence = "independent"},
+for fewer than three variables (the tree is then trivial), and for
+longitudinal / linked DP releases (which keep the single-pass fitter).}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

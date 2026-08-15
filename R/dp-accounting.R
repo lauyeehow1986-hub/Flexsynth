@@ -109,7 +109,7 @@ rlaplace <- function(n, scale) {
 new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
                                             eps_per_query = NA_real_, frac = 0),
-                              longitudinal = NULL, linked = NULL) {
+                              longitudinal = NULL, linked = NULL, learn = NULL) {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -125,7 +125,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       rows_dropped = dropped,
       domain = domain,
       longitudinal = longitudinal,
-      linked = linked
+      linked = linked,
+      learn = learn
     ),
     class = "dp_accounting"
   )
@@ -148,8 +149,15 @@ print.dp_accounting <- function(x, ...) {
     cat("  histograms:", x$n_marginals,
         "(per-table variable marginals + child count models, composed budget)\n")
   } else if (is.null(x$longitudinal)) {
-    cat("  marginals :", x$n_marginals,
-        "(measured under composed budget)\n")
+    if (!is.null(x$learn)) {
+      lr <- x$learn
+      cat("  marginals :", x$n_marginals,
+          paste0("(", lr$n_struct, " pairwise scans + ", lr$n_param,
+                 " parameter marginals, composed budget)\n"))
+    } else {
+      cat("  marginals :", x$n_marginals,
+          "(measured under composed budget)\n")
+    }
   } else {
     lg <- x$longitudinal
     cat("  histograms:", x$n_marginals,
@@ -158,7 +166,15 @@ print.dp_accounting <- function(x, ...) {
   }
   cat("  noise     :",
       if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
-      signif(x$noise, 4), "per cell\n")
+      signif(x$noise, 4), "per cell",
+      if (!is.null(x$learn)) "(parameters)" else "", "\n")
+  if (!is.null(x$learn)) {
+    lr <- x$learn
+    cat("  structure : budget-efficient,", signif(lr$frac, 3),
+        "of budget selects the tree;",
+        if (x$mechanism == "laplace") "scan Laplace scale" else "scan Gaussian sd",
+        signif(lr$struct_noise, 4), "per cell\n")
+  }
   if (!is.null(x$linked)) {
     for (ti in x$linked$tables) {
       role <- if (ti$role == "root") "root, cap 1"
