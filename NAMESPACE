@@ -3,6 +3,7 @@
 S3method(as.data.frame,synth_result)
 S3method(as.list,synth_linked_result)
 S3method(plot,flexsynth_diagnostics)
+S3method(print,dp_accounting)
 S3method(print,dp_control)
 S3method(print,flexsynth_diagnostics)
 S3method(print,flexsynth_diagnostics_list)

@@ -1,0 +1,166 @@
+---
+title: "Differentially private synthesis (Track B)"
+output:
+  litedown::html_format:
+    meta:
+      css: ["@default"]
+vignette: >
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteIndexEntry{Differentially private synthesis (Track B)}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(1)
+library(flexsynth)
+```
+
+## Two tracks, one interface
+
+`flexsynth` has two engines. **Track A** (the default) maximises statistical
+utility and carries *no* formal privacy guarantee — you judge the residual risk
+with `diagnose()` and `disclosure_risk()`. **Track B** trades some utility for a
+mathematically provable guarantee: **differential privacy (DP)**. You opt in by
+passing a `dp_control()` to the `privacy` argument of `synth()`; nothing else
+about the call changes.
+
+```{r optin}
+dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian")
+dp
+```
+
+Differential privacy bounds how much *any single individual* can change the
+output distribution. The guarantee is stated as a pair
+(\(\epsilon\), \(\delta\)): smaller values mean stronger privacy and more noise.
+The default privacy unit here is **person-level** — the guarantee protects an
+individual across *all* of their rows, not just a single record.
+
+## A worked example
+
+We use a small **synthetic** cardiac dataset (never real patient data): one row
+per patient, with an age, sex, a smoking flag and a systolic blood pressure that
+depends on both.
+
+```{r data}
+n <- 1500
+real <- data.frame(
+  id     = seq_len(n),
+  age    = round(rnorm(n, 62, 11)),
+  sex    = factor(sample(c("F", "M"), n, TRUE, prob = c(0.45, 0.55))),
+  smoker = sample(c(FALSE, TRUE), n, TRUE, prob = c(0.7, 0.3))
+)
+real$sbp <- round(0.6 * real$age + ifelse(real$smoker, 8, 0) + rnorm(n, 90, 10))
+head(real)
+```
+
+### Supply public bounds
+
+The DP engine works over a **discrete grid**: numeric variables are cut into
+bins. Where those bin edges come from matters. If you let the engine read them
+from the data, that is a small data-dependent step that is *not* covered by the
+(\(\epsilon\), \(\delta\)) accounting — the engine warns you when this happens.
+For a clean, fully data-independent release, pass public ranges (from domain
+knowledge, a codebook, or physiological limits) via `bounds`:
+
+```{r bounds}
+dp <- dp_control(
+  epsilon    = 2,
+  delta      = 1e-6,
+  mechanism  = "gaussian",
+  bounds     = list(age = c(18, 100), sbp = c(60, 240))
+)
+res <- synth(real, structure = ~ id, privacy = dp, seed = 1)
+res
+```
+
+The result is an ordinary `synth_result`; `as.data.frame()` gives the synthetic
+table, whose `id` is a fresh surrogate key.
+
+```{r syn}
+syn <- as.data.frame(res)
+head(syn)
+```
+
+### The privacy accounting
+
+Every DP result carries an accounting record describing exactly what was spent
+and how the noise was calibrated. This is the object to keep with a governed
+release.
+
+```{r acct}
+res$privacy
+```
+
+The engine measures a set of low-order marginals under a single, composed budget:
+one-way marginals for every variable and (with the default
+`dependence = "tree"`) the pairwise marginals needed to learn a Chow-Liu
+dependency tree. The number of marginals, the per-cell noise scale, and — for the
+Gaussian mechanism — the zero-concentrated-DP \(\rho\) are all reported.
+
+## Choices that matter
+
+**Mechanism.** `"laplace"` gives *pure* \(\epsilon\)-DP (set `delta = 0`);
+`"gaussian"` gives approximate (\(\epsilon\), \(\delta\))-DP with tighter
+composition when many marginals are measured (it needs `delta > 0`).
+
+**Dependence.** `"tree"` (default) keeps first- and second-order structure by
+fitting a Chow-Liu tree over the noisy pairwise marginals — no extra budget,
+because the same measurements are reused for structure and parameters.
+`"independent"` measures only one-way marginals: fewer queries, so less noise per
+query, but cross-variable correlations are lost. The real `age`/`sbp`
+correlation here is about `r round(cor(real$age, real$sbp), 2)`. Under DP the tree
+recovers a substantial part of it while the independent model necessarily drives
+it to zero:
+
+```{r dependence}
+b <- list(age = c(18, 100), sbp = c(60, 240))
+dp_tree  <- dp_control(epsilon = 6, mechanism = "laplace", dependence = "tree",
+                       bins = 8, bounds = b)
+dp_indep <- dp_control(epsilon = 6, mechanism = "laplace", dependence = "independent",
+                       bins = 8, bounds = b)
+s_tree  <- as.data.frame(synth(real, ~ id, privacy = dp_tree,  seed = 1))
+s_indep <- as.data.frame(synth(real, ~ id, privacy = dp_indep, seed = 1))
+c(real  = cor(real$age, real$sbp),
+  tree  = cor(s_tree$age,  s_tree$sbp),
+  indep = cor(s_indep$age, s_indep$sbp))
+```
+
+Two things are visible in that vector: the tree keeps a clear positive
+association (never the full strength — DP noise attenuates it), and the
+independent model has no correlation at all by construction. The gap between the
+tree and the real value is the honest price of the guarantee; a larger `epsilon`
+or a coarser `bins` narrows it.
+
+**Contribution bound.** At `unit = "person"` each person may contribute at most
+`max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
+tables). If a person legitimately has several rows, set this from public domain
+knowledge; rows beyond the cap are subsampled away before any budget is spent, so
+the guarantee holds by construction.
+
+**More budget, more fidelity.** Larger `epsilon` means less noise. The synthetic
+marginals converge to the real ones as \(\epsilon\) grows:
+
+```{r budget}
+for (e in c(0.5, 2, 8)) {
+  d <- dp_control(epsilon = e, mechanism = "laplace",
+                  dependence = "independent",
+                  bounds = list(age = c(18, 100), sbp = c(60, 240)))
+  s <- as.data.frame(synth(real, ~ id, privacy = d, seed = 1))
+  cat(sprintf("epsilon = %-3g  mean(sbp): real %.1f  syn %.1f\n",
+              e, mean(real$sbp), mean(s$sbp)))
+}
+```
+
+## What Track B does *not* do (yet)
+
+- It produces a **flat** marginal release. Within-unit / longitudinal structure
+  (the autoregressive temporal model of Track A) is **not** preserved under DP;
+  a `structure = ~ id / visit` is treated as a flat table with a surrogate id.
+- **Linked multi-table** DP (via `synth_linked()`) is not available yet.
+- Constraints (`rule()`) are refused under DP, because data-dependent rejection
+  sampling would leak information the budget does not account for.
+
+Within those limits the guarantee is exact and reported. For anything labelled
+differentially private, keep the accounting record with the release, and prefer
+public `bounds` so the discretisation adds no unaccounted leakage.

@@ -83,7 +83,9 @@ synth_linked <- function(tables,
 
   if (!is.null(privacy)) {
     stop(paste0("synth_linked(): differentially private synthesis (Track B) is ",
-                "not implemented yet (Phase 7). See CLAUDE.md roadmap."),
+                "not available for linked multi-table data yet. DP currently ",
+                "targets flat / single-table releases via synth(); linked DP is ",
+                "a later roadmap step. See CLAUDE.md roadmap."),
          call. = FALSE)
   }
   if (!is.null(constraints)) {

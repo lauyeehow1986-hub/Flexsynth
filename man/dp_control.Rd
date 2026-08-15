@@ -9,7 +9,10 @@ dp_control(
   delta = 0,
   unit = c("person", "row"),
   max_rows_per_person = NULL,
-  mechanism = c("laplace", "gaussian")
+  mechanism = c("laplace", "gaussian"),
+  dependence = c("tree", "independent"),
+  bins = 12L,
+  bounds = NULL
 )
 }
 \arguments{
@@ -17,33 +20,64 @@ dp_control(
 utility.}
 
 \item{delta}{Failure probability for approximate DP; \code{0} requests pure
-\eqn{\epsilon}-DP.}
+\eqn{\epsilon}-DP (only the Laplace mechanism supports \code{delta = 0}).}
 
 \item{unit}{Privacy unit. \code{"person"} (default) protects an individual across
-all their rows/tables; \code{"row"} is weaker and cheaper.}
+all their rows; \code{"row"} is weaker and cheaper (each row independent).}
 
-\item{max_rows_per_person}{Optional cap on how many rows one person may
-contribute (per table); required to bound sensitivity at \code{unit = "person"}.
-\code{NULL} derives a data-independent default at synthesis time.}
+\item{max_rows_per_person}{Cap on how many rows one person may contribute,
+used to bound sensitivity at \code{unit = "person"}. \code{NULL} (default) uses \code{1}
+(each person contributes at most one row); rows beyond the cap are dropped
+by per-person subsampling before measuring. Set this from public domain
+knowledge when a person legitimately has several rows.}
 
-\item{mechanism}{Noise mechanism, e.g. \code{"laplace"} or \code{"gaussian"}.}
+\item{mechanism}{Noise mechanism: \code{"laplace"} (pure \eqn{\epsilon}-DP) or
+\code{"gaussian"} (approximate DP with zCDP composition; needs \code{delta > 0}).}
+
+\item{dependence}{Dependence structure of the generative model: \code{"tree"}
+(default; a Chow-Liu tree over pairwise marginals) or \code{"independent"}
+(one-way marginals only).}
+
+\item{bins}{Number of equal-width bins used to discretise each numeric
+variable (default 12). Finer grids sharpen one-way marginals but make the
+noisy two-way marginals used by \code{dependence = "tree"} weaker per cell, so a
+moderate value usually gives the best correlation fidelity. Means and sums
+are largely unaffected (bin contents are decoded uniformly within the bin).}
+
+\item{bounds}{Optional named list giving \code{c(lower, upper)} for numeric
+variables, used as public, data-independent bin edges. Variables not named
+fall back to the observed data range (with a warning).}
 }
 \value{
 An object of class \code{dp_control} (a validated list).
 }
 \description{
 Opt into differentially private synthesis. Passing the result as
-\code{synth(..., privacy = dp_control(...))} selects the DP-capable synthesiser
-and yields a formal (\eqn{\epsilon}, \eqn{\delta}) guarantee. The privacy
-unit is \strong{person-level} by default: the guarantee protects a whole
-individual (all of their linked rows across all tables), enforced by bounding
-each person's contribution before the budget is spent.
+\code{synth(..., privacy = dp_control(...))} selects the DP synthesiser and yields
+a formal (\eqn{\epsilon}, \eqn{\delta}) guarantee. The privacy unit is
+\strong{person-level} by default: the guarantee protects a whole individual (all of
+their rows), enforced by bounding each person's contribution before any budget
+is spent.
 }
 \details{
-Note: the DP engine is a later roadmap phase (Track B). This constructor is
-stable so the interface and validation are settled first.
+The DP engine (Track B) is a \emph{marginal-based} synthesiser in the
+PrivBayes / MST lineage. Continuous variables are discretised into a public
+grid; low-order marginals are measured under the chosen noise mechanism with
+correct budget composition; and synthetic records are drawn from the resulting
+model. With \code{dependence = "tree"} a Chow-Liu tree of pairwise dependencies is
+learned from the same noisy marginals (no extra budget) so second-order
+structure is retained; \code{dependence = "independent"} keeps only one-way
+marginals. All noise calibration and composition is reported back on the
+result (see the accounting printed by \code{\link[=synth]{synth()}}).
+
+Note on bin edges and category sets: unless \code{bounds} is supplied, numeric bin
+edges are taken from the data range and categorical domains from the observed
+levels. That is a small data-dependent step which is \strong{not} included in the
+(\eqn{\epsilon}, \eqn{\delta}) accounting; supply \code{bounds} (and factor columns
+with their full \code{levels}) from public knowledge to make the release fully
+data-independent. A warning is emitted when edges are derived from the data.
 }
 \examples{
-dp <- dp_control(epsilon = 1, delta = 1e-6, unit = "person")
+dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian")
 dp
 }

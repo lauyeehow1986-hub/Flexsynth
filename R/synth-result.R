@@ -23,7 +23,15 @@ new_synth_result <- function(syn, m, n, method, structure, visit_sequence,
 #' @export
 print.synth_result <- function(x, ...) {
   cat("<synth_result>\n")
-  cat("  track        : A (high-utility; NOT differentially private)\n")
+  if (is.null(x$privacy)) {
+    cat("  track        : A (high-utility; NOT differentially private)\n")
+  } else {
+    p <- x$privacy
+    cat(sprintf("  track        : B (differentially private; epsilon = %s%s, %s level)\n",
+                p$epsilon,
+                if (p$delta > 0) paste0(", delta = ", format(p$delta, scientific = TRUE))
+                else "", p$unit))
+  }
   cat("  datasets (m) :", x$m, "\n")
   nr <- if (x$m == 1L) nrow(x$syn) else nrow(x$syn[[1L]])
   cat("  rows each    :", nr, " (input:", x$n, ")\n")

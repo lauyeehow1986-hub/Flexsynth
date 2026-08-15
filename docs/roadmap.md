@@ -92,8 +92,26 @@ engine; Track B is the opt-in differentially private engine.
   data.table code path for the inner grouped draws (not just row-binding);
   within-replicate parallelism for a single very large table.
 
-## Phase 7 — Track B (differential privacy)
-- `dp_control()` end to end; **person-level** contribution bounding; a
-  marginal-based DP synthesiser (PrivBayes / MST / AIM style) with (ε, δ)
-  accounting. Flat / marginal releases first, then extend toward linked data.
-- DP vignette. Opt-in; must not regress Track A.
+## Phase 7 — Track B (differential privacy)  *(done)*
+- [x] `dp_control()` wired end to end through `synth(privacy = ...)`, selecting
+      a marginal-based DP synthesiser (PrivBayes / MST lineage).
+- [x] **Person-level** contribution bounding (`max_rows_per_person`) applied
+      before any budget is spent, so each person's effect on every marginal is
+      bounded by construction.
+- [x] Public-grid discretisation; low-order marginals measured under Laplace
+      (pure ε) or Gaussian (zCDP-composed (ε, δ)) noise with exact composition
+      and a reported `dp_accounting` record. `dependence = "tree"` learns a
+      Chow-Liu tree from the same noisy marginals (no extra budget);
+      `"independent"` keeps one-way marginals only.
+- [x] DP vignette (`vignette("differential-privacy")`). Opt-in; Track A output
+      and behaviour unchanged.
+- Future: linked multi-table DP for `synth_linked()`; preservation of
+  within-unit longitudinal structure under DP (e.g. DP Markov transitions);
+  budget-efficient structure learning (measure structure cheaply, then only the
+  chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
+  greedy degree>1 networks and AIM-style adaptive marginal selection;
+  data-independent / DP-estimated bin edges so discretisation adds no
+  unaccounted leakage.
+
+## Phase 8 — polish
+- API review, README / pkgdown, performance pass, CRAN-readiness.

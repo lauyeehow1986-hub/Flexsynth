@@ -81,3 +81,26 @@
       L'Ecuyer RNG streams so a parallel run is reproducible for a fixed
       (`seed`, worker count). Serial synthesis (the default) is unchanged, and
       the engine falls back to serial if a cluster cannot be started.
+* **Phase 7 — Track B differential privacy.** `synth(privacy = dp_control(...))`
+  now performs differentially private synthesis with a formal
+  (\eqn{\epsilon}, \eqn{\delta}) guarantee at **person level**. The engine is a
+  marginal-based synthesiser in the PrivBayes / MST lineage: each person's
+  contribution is bounded (`max_rows_per_person`), numeric variables are
+  discretised to a public grid, low-order marginals are measured under the
+  chosen noise mechanism with correct budget composition, and synthetic records
+  are drawn from the fitted model.
+    * **Mechanisms and accounting.** `mechanism = "laplace"` gives pure
+      \eqn{\epsilon}-DP; `"gaussian"` gives approximate DP composed via
+      zero-concentrated DP and calibrated to spend exactly (\eqn{\epsilon},
+      \eqn{\delta}). Every result carries a `dp_accounting` record (mechanism,
+      composed budget, per-cell noise, contribution bound) for the release file.
+    * **Dependence structure.** `dependence = "tree"` (default) learns a
+      Chow-Liu tree from the same noisy marginals (no extra budget), retaining
+      pairwise correlations; `"independent"` keeps only one-way marginals.
+    * **Honesty about scope.** DP mode is a flat / single-table release: it does
+      not preserve within-unit longitudinal structure, `synth_linked()` DP is
+      not available yet, and `rule()` constraints are refused under DP (their
+      data-dependent rejection would leak). Bin edges / category sets default to
+      the data range with a warning unless supplied publicly via `bounds`; that
+      step is excluded from the (\eqn{\epsilon}, \eqn{\delta}) accounting. See
+      `vignette("differential-privacy")`.

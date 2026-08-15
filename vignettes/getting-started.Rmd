@@ -22,8 +22,9 @@ library(flexsynth)
 of a real dataset without copying its records. The default **Track A** engine is
 a high-utility sequential synthesiser; it carries **no** formal privacy
 guarantee, so the package ships honest utility and disclosure-risk diagnostics
-so you can judge the trade-off yourself. (An opt-in differentially private
-**Track B** is a later roadmap phase.)
+so you can judge the trade-off yourself. For a formal guarantee, the opt-in
+differentially private **Track B** is described in
+`vignette("differential-privacy")`.
 
 ## A first synthesis
 

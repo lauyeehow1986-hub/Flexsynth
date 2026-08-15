@@ -1,11 +1,11 @@
-test_that("synth runs Track A but signals Track B is not yet implemented", {
-  df <- data.frame(id = 1:4, visit = c(1, 2, 1, 2), y = rnorm(4))
+test_that("synth runs Track A, and Track B routes to the DP engine", {
+  df <- data.frame(id = 1:40, visit = 1, y = rnorm(40))
   expect_s3_class(synth(df, structure = ~ id / visit, seed = 1), "synth_result")
-  # Track B (DP) path is validated but not yet built
-  expect_error(
-    synth(df, structure = ~ id / visit, privacy = dp_control(epsilon = 1)),
-    "Track B"
-  )
+  # Track B (DP) is now built: it returns a differentially private result.
+  res <- suppressWarnings(
+    synth(df, structure = ~ id / visit, privacy = dp_control(epsilon = 1), seed = 1))
+  expect_s3_class(res, "synth_result")
+  expect_s3_class(res$privacy, "dp_accounting")
 })
 
 test_that("synth rejects structure variables absent from data", {

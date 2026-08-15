@@ -70,14 +70,19 @@ synth <- function(data,
                   ...) {
   validate_synth_inputs(data, structure, tuning, privacy, m)
 
+  st <- parse_structure(structure, data)
+
   if (!is.null(privacy)) {
-    stop(paste0("synth(): differentially private synthesis (Track B) is not ",
-                "implemented yet (Phase 7). See CLAUDE.md roadmap."),
-         call. = FALSE)
+    if (!is.null(constraints)) {
+      stop(paste0("synth(): `constraints` are not supported under differentially ",
+                  "private synthesis (Track B). Rejection sampling would leak ",
+                  "the constraint's data-dependent acceptance."), call. = FALSE)
+    }
+    return(synth_dp(data, st, structure, privacy, tuning, m, seed))
   }
+
   rules <- normalise_constraints(constraints, data)
 
-  st <- parse_structure(structure, data)
   if (!is.null(seed)) set.seed(seed)
 
   fixed_cols <- st$nested
