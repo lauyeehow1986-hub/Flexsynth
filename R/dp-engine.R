@@ -136,9 +136,13 @@ dp_decode_frame <- function(codes, dom) {
 
 # Top-level DP synthesiser. `st` is the parsed structure; the unit id becomes a
 # surrogate key (1..n) and every other column is modelled as a discrete variable.
-# DP mode produces a flat marginal release: within-unit / temporal structure is
-# not preserved (that is a later roadmap step).
+# When the structure declares a nesting index (`~ id / visit`) the DP Markov
+# engine preserves within-unit temporal structure (see dp-longitudinal.R);
+# otherwise this produces a flat marginal release.
 synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
+  if (length(st$nested) > 0L) {
+    return(synth_dp_longitudinal(data, st, structure, dp, tuning, m, seed))
+  }
   if (!is.null(seed)) set.seed(seed)
   id <- st$id
   vars <- setdiff(names(data), id)

@@ -51,7 +51,10 @@
 #'   used to bound sensitivity at `unit = "person"`. `NULL` (default) uses `1`
 #'   (each person contributes at most one row); rows beyond the cap are dropped
 #'   by per-person subsampling before measuring. Set this from public domain
-#'   knowledge when a person legitimately has several rows.
+#'   knowledge when a person legitimately has several rows. For a longitudinal DP
+#'   release (a `structure` with a nesting index), this must be `>= 2` — it caps
+#'   the transition sensitivity — and the per-person prefix of that many rows is
+#'   kept in temporal order.
 #' @param mechanism Noise mechanism: `"laplace"` (pure \eqn{\epsilon}-DP) or
 #'   `"gaussian"` (approximate DP with zCDP composition; needs `delta > 0`).
 #' @param dependence Dependence structure of the generative model: `"tree"`

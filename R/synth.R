@@ -31,7 +31,12 @@
 #' the nested structure.
 #'
 #' Passing `privacy = dp_control(...)` selects differentially private synthesis
-#' (Track B), which is a later roadmap phase.
+#' (Track B) with a formal (\eqn{\epsilon}, \eqn{\delta}) guarantee. A flat
+#' `structure = ~ id` gives a marginal release; a nesting index
+#' (`~ id / visit`) additionally engages a DP Markov model that preserves
+#' within-unit temporal structure (length, initial state, and per-variable
+#' transitions), for which `max_rows_per_person` must be set to the public
+#' maximum rows per person. See `vignette("differential-privacy")`.
 #'
 #' @param data A `data.frame` in long format.
 #' @param structure A one-sided formula giving the nesting hierarchy, e.g.

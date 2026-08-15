@@ -1,5 +1,27 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: longitudinal DP (a DP Markov model).** When the `structure`
+  declares a nesting index (`synth(data, ~ id / visit, privacy = dp_control(...))`),
+  the differentially private engine now preserves within-unit temporal structure
+  instead of flattening to a surrogate id. It is the private analogue of Track
+  A's initial-state + lag-1 transition model: under one composed budget it
+  measures a **length histogram** (rows per person), the **initial-state**
+  one-/two-way marginals (the `t = 1` row), and a **transition matrix**
+  \eqn{P(v_t \mid v_{t-1})} per variable, then draws a length, an initial row and
+  steps the transitions — so autocorrelation across visits survives the noise.
+  Because a person contributes a whole trajectory, `max_rows_per_person` must be
+  set to the public maximum number of visits (`>= 2`); it caps each person's
+  effect on the transition histograms (a length-\eqn{\le c} trajectory has at most
+  \eqn{c-1} consecutive pairs). The composition is exact: total L1 sensitivity
+  \eqn{= 1 + n_{\mathrm{init}} + |V|\,(c-1)} (Laplace) and summed squared L2
+  \eqn{= 1 + n_{\mathrm{init}} + |V|\,(c-1)^2} (Gaussian zCDP), so the reported
+  (\eqn{\epsilon}, \eqn{\delta}) still holds end to end and the accounting print
+  breaks the budget down (length + initial + transition). DP-estimated bin edges
+  (`domain = "dp"`) compose in as before. The synthetic nesting index is
+  regenerated as the within-person position. Two first-cut limitations: every
+  non-index column is modelled as time-varying (a constant baseline may drift a
+  little between a synthetic person's visits) and transitions are per-variable.
+  Flat `~ id` DP releases are unchanged.
 * **Track B: rigorous, accounted discretisation.** DP bin edges are no longer
   read silently from the data range. `dp_control()` gains a `domain` argument
   (default `"dp"`): numeric variables without a public range in `bounds` now have

@@ -105,13 +105,22 @@ engine; Track B is the opt-in differentially private engine.
       `"independent"` keeps one-way marginals only.
 - [x] DP vignette (`vignette("differential-privacy")`). Opt-in; Track A output
       and behaviour unchanged.
-- Future: linked multi-table DP for `synth_linked()`; preservation of
-  within-unit longitudinal structure under DP (e.g. DP Markov transitions);
-  budget-efficient structure learning (measure structure cheaply, then only the
-  chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection.
-  (Data-independent / DP-estimated bin edges — the discretisation leakage — are
-  now done; see the post-Phase-8 item below.)
+- [x] **Longitudinal DP (a DP Markov model).** A `structure` with a nesting index
+      (`~ id / visit`) preserves within-unit temporal structure under DP: a length
+      histogram, initial-state marginals, and per-variable transition matrices
+      \eqn{P(v_t \mid v_{t-1})}, all measured under one exactly-composed budget
+      (total L1 \eqn{= 1 + n_{init} + |V|(c-1)}; summed squared L2
+      \eqn{= 1 + n_{init} + |V|(c-1)^2}). `max_rows_per_person >= 2` bounds the
+      transition sensitivity; the nesting index is regenerated as the within-person
+      position. Flat `~ id` releases unchanged.
+- Future: linked multi-table DP for `synth_linked()`; budget-efficient structure
+  learning (measure structure cheaply, then only the chosen tree's edges, instead
+  of measuring all pairwise marginals); PrivBayes greedy degree>1 networks and
+  AIM-style adaptive marginal selection; publicly-declared baseline columns held
+  exactly constant within a person under the DP Markov model (currently every
+  non-index column is time-varying); higher-order / cross-variable DP
+  transitions. (Data-independent / DP-estimated bin edges are done; see the
+  post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

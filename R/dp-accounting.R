@@ -26,39 +26,53 @@ zcdp_rho_for <- function(epsilon, delta) {
   (sqrt(L + epsilon) - sqrt(L))^2
 }
 
-# Calibrate the noise for a release of `n_marginals` marginals at sensitivity
-# `cap`. Returns a list describing the mechanism and the per-cell noise, plus a
-# closure `add_noise(counts)` that draws the calibrated noise for one histogram.
+# Core noise calibration from explicit release sensitivities. A release is a
+# concatenation of histograms; `total_l1` is the total L1 person-sensitivity
+# (used by Laplace) and `sum_sq` is the sum of squared L2 person-sensitivities
+# over the histograms (used by the Gaussian / zCDP path). `budget_frac` (in
+# (0, 1]) is the share of the total budget these measurements may spend; the
+# remainder is reserved for DP domain estimation (see `dp_quantile_eps()`). The
+# split is exact: pure eps adds and zCDP rho adds, so measurements + domain never
+# exceed (eps, delta). Returns the mechanism description plus a closure
+# `add_noise(counts)` that draws one histogram's worth of calibrated noise.
 #
-# `budget_frac` (in (0, 1]) is the share of the total budget the marginals may
-# spend; the remainder is reserved for DP domain estimation (see
-# `dp_quantile_eps()`). With the default `budget_frac = 1` the marginals get the
-# whole budget (no domain estimation). The split is exact: pure eps adds and zCDP
-# rho adds, so marginals + domain never exceed (eps, delta).
-dp_calibrate <- function(dp, n_marginals, cap, budget_frac = 1) {
-  n_marginals <- as.integer(n_marginals)
-  cap <- as.numeric(cap)
+# Uniform per-cell noise with these totals is correct for heterogeneous
+# sensitivities: for Laplace, Laplace(total_l1 / eps) on every cell gives eps-DP
+# because the concatenated L1 sensitivity is total_l1; for Gaussian, sd
+# sqrt(sum_sq / (2 rho)) gives rho-zCDP because the summed per-release zCDP is
+# sum_sq / (2 sigma^2).
+dp_make_noise <- function(dp, total_l1, sum_sq, budget_frac = 1) {
   eps <- dp$epsilon
   if (dp$mechanism == "laplace") {
-    # Marginals get budget_frac of the pure-eps budget.
-    eps_marg <- budget_frac * eps
-    # Total L1 sensitivity of the concatenated release is n_marginals * cap.
-    scale <- (n_marginals * cap) / eps_marg
+    eps_marg <- budget_frac * eps          # measurements' share of pure-eps budget
+    scale <- total_l1 / eps_marg
     add_noise <- function(counts)
       counts + rlaplace(length(counts), scale = scale)
     list(mechanism = "laplace", scale = scale, epsilon = eps, delta = 0,
-         rho = NA_real_, n_marginals = n_marginals, cap = cap,
-         budget_frac = budget_frac, add_noise = add_noise)
+         rho = NA_real_, budget_frac = budget_frac, add_noise = add_noise)
   } else {
     rho_total <- zcdp_rho_for(eps, dp$delta)
-    rho_marg <- budget_frac * rho_total          # marginals' share of zCDP rho
-    sigma <- cap * sqrt(n_marginals / (2 * rho_marg))
+    rho_marg <- budget_frac * rho_total     # measurements' share of zCDP rho
+    sigma <- sqrt(sum_sq / (2 * rho_marg))
     add_noise <- function(counts)
       counts + stats::rnorm(length(counts), sd = sigma)
     list(mechanism = "gaussian", sigma = sigma, epsilon = eps, delta = dp$delta,
-         rho = rho_total, rho_marginals = rho_marg, n_marginals = n_marginals,
-         cap = cap, budget_frac = budget_frac, add_noise = add_noise)
+         rho = rho_total, rho_marginals = rho_marg, budget_frac = budget_frac,
+         add_noise = add_noise)
   }
+}
+
+# Calibrate the noise for a flat release of `n_marginals` marginals, each at
+# person-sensitivity `cap` (adding / removing one person moves at most `cap`
+# counts in any single marginal). Total L1 = n_marginals * cap, and the summed
+# squared L2 is n_marginals * cap^2, so this is a thin wrapper over
+# `dp_make_noise()` that reproduces the original flat calibration exactly.
+dp_calibrate <- function(dp, n_marginals, cap, budget_frac = 1) {
+  n_marginals <- as.integer(n_marginals)
+  cap <- as.numeric(cap)
+  core <- dp_make_noise(dp, total_l1 = n_marginals * cap,
+                        sum_sq = n_marginals * cap^2, budget_frac = budget_frac)
+  c(core, list(n_marginals = n_marginals, cap = cap))
 }
 
 # Per-query epsilon for the exponential-mechanism quantiles used to estimate bin
@@ -87,10 +101,15 @@ rlaplace <- function(n, scale) {
 # Accounting record attached to a DP synth_result$privacy slot. `domain`
 # describes how bin edges were chosen and, under DP estimation, what it cost:
 # a list with `mode`, the estimated variables, the per-query epsilon, and the
-# budget fraction reserved for it (0 when nothing was estimated).
+# budget fraction reserved for it (0 when nothing was estimated). `longitudinal`
+# is NULL for a flat release, or a list describing the DP Markov model (the
+# number of initial-state marginals, the number of transition matrices, and the
+# per-person row cap that bounds the transition sensitivity) when within-unit
+# temporal structure was modelled.
 new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
-                                            eps_per_query = NA_real_, frac = 0)) {
+                                            eps_per_query = NA_real_, frac = 0),
+                              longitudinal = NULL) {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -104,7 +123,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       rho = calib$rho,
       variables = variables,
       rows_dropped = dropped,
-      domain = domain
+      domain = domain,
+      longitudinal = longitudinal
     ),
     class = "dp_accounting"
   )
@@ -118,9 +138,18 @@ print.dp_accounting <- function(x, ...) {
       ")-DP,", x$unit, "level\n")
   cat("  mechanism :", x$mechanism,
       if (x$mechanism == "gaussian") paste0("(rho = ", signif(x$rho, 3), " zCDP)") else "", "\n")
-  cat("  model     :", x$dependence, "over", length(x$variables), "variables\n")
-  cat("  marginals :", x$n_marginals,
-      "(measured under composed budget)\n")
+  cat("  model     :", x$dependence, "over", length(x$variables), "variables",
+      if (!is.null(x$longitudinal)) "(DP Markov: initial-state + transitions)" else "",
+      "\n")
+  if (is.null(x$longitudinal)) {
+    cat("  marginals :", x$n_marginals,
+        "(measured under composed budget)\n")
+  } else {
+    lg <- x$longitudinal
+    cat("  histograms:", x$n_marginals,
+        paste0("(1 length + ", lg$n_init_marg, " initial + ",
+               lg$n_transitions, " transition, composed budget)\n"))
+  }
   cat("  noise     :",
       if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
       signif(x$noise, 4), "per cell\n")

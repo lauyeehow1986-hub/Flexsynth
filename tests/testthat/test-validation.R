@@ -1,9 +1,9 @@
 test_that("synth runs Track A, and Track B routes to the DP engine", {
   df <- data.frame(id = 1:40, visit = 1, y = rnorm(40))
   expect_s3_class(synth(df, structure = ~ id / visit, seed = 1), "synth_result")
-  # Track B (DP) is now built: it returns a differentially private result.
+  # Track B (DP): a flat structure returns a differentially private result.
   res <- suppressWarnings(
-    synth(df, structure = ~ id / visit, privacy = dp_control(epsilon = 1), seed = 1))
+    synth(df, structure = ~ id, privacy = dp_control(epsilon = 1), seed = 1))
   expect_s3_class(res, "synth_result")
   expect_s3_class(res$privacy, "dp_accounting")
 })

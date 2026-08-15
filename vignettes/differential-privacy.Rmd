@@ -184,14 +184,64 @@ for (e in c(0.5, 2, 8)) {
 }
 ```
 
+## Longitudinal releases: a DP Markov model
+
+If the `structure` declares a nesting index (`~ id / visit`), Track B preserves
+within-unit temporal structure with a first-order Markov model — the private
+analogue of Track A's initial-state + lag-1 transition model. Three things are
+measured under one composed budget: a **length histogram** (how many rows a
+person contributes), the **initial-state marginals** (the `t = 1` row, one- and
+two-way as before), and a **transition matrix** \(P(v_t \mid v_{t-1})\) for each
+variable. Generation draws a length, an initial row, then steps each variable's
+transition matrix, so autocorrelation across visits is retained.
+
+Because a person now contributes a whole trajectory, you must set
+`max_rows_per_person` to the public maximum number of visits — this bounds each
+person's effect on the transition histograms (a length-\(\le c\) trajectory has
+at most \(c - 1\) consecutive pairs). The budget still composes to exactly
+(\(\epsilon\), \(\delta\)); the accounting reports the split.
+
+```{r longitudinal}
+long <- do.call(rbind, lapply(1:400, function(i) {
+  nv <- sample(2:4, 1); s <- numeric(nv); s[1] <- rnorm(1, 130, 12)
+  for (t in seq_len(nv)[-1]) s[t] <- 0.85 * s[t - 1] + 0.15 * 130 + rnorm(1, 0, 5)
+  data.frame(id = i, visit = seq_len(nv), sbp = round(s),
+             sex = sample(c("F", "M"), 1))
+}))
+long$sex <- factor(long$sex)
+
+dp_long <- dp_control(epsilon = 8, mechanism = "laplace",
+                      max_rows_per_person = 4, bounds = list(sbp = c(60, 240)))
+res_long <- synth(long, structure = ~ id / visit, privacy = dp_long, seed = 1)
+res_long$privacy
+```
+
+The synthetic `visit` index is regenerated as the within-person position, and a
+lag-1 correlation like the real one survives the noise (DP attenuates it):
+
+```{r longitudinal-cor}
+lag1 <- function(d) {
+  d <- d[order(d$id, d$visit), ]
+  prev <- ave(d$sbp, d$id, FUN = function(x) c(NA, head(x, -1)))
+  ok <- !is.na(prev); cor(prev[ok], d$sbp[ok])
+}
+syn_long <- as.data.frame(res_long)
+c(real = lag1(long), synthetic = lag1(syn_long))
+```
+
+Two honest limitations of this first-order model: every non-index column is
+treated as time-varying (a genuinely constant baseline covariate may therefore
+drift slightly between a synthetic person's visits), and transitions are
+per-variable (cross-variable coupling is carried at `t = 1` by the initial-state
+tree, not re-measured at each later step).
+
 ## What Track B does *not* do (yet)
 
-- It produces a **flat** marginal release. Within-unit / longitudinal structure
-  (the autoregressive temporal model of Track A) is **not** preserved under DP;
-  a `structure = ~ id / visit` is treated as a flat table with a surrogate id.
 - **Linked multi-table** DP (via `synth_linked()`) is not available yet.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
+- Publicly-declared baseline columns (held exactly constant within a person
+  under DP) are not yet supported — see the note above.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

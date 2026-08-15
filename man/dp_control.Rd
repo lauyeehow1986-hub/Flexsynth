@@ -31,7 +31,10 @@ all their rows; \code{"row"} is weaker and cheaper (each row independent).}
 used to bound sensitivity at \code{unit = "person"}. \code{NULL} (default) uses \code{1}
 (each person contributes at most one row); rows beyond the cap are dropped
 by per-person subsampling before measuring. Set this from public domain
-knowledge when a person legitimately has several rows.}
+knowledge when a person legitimately has several rows. For a longitudinal DP
+release (a \code{structure} with a nesting index), this must be \verb{>= 2} — it caps
+the transition sensitivity — and the per-person prefix of that many rows is
+kept in temporal order.}
 
 \item{mechanism}{Noise mechanism: \code{"laplace"} (pure \eqn{\epsilon}-DP) or
 \code{"gaussian"} (approximate DP with zCDP composition; needs \code{delta > 0}).}
