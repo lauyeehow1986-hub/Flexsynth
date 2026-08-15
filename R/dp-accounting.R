@@ -163,7 +163,8 @@ print.dp_accounting <- function(x, ...) {
     for (ti in x$linked$tables) {
       role <- if (ti$role == "root") "root, cap 1"
               else paste0("child of ", ti$parent, ", <=", ti$local_cap,
-                          "/parent, path cap ", ti$path_cap)
+                          "/parent, path cap ", ti$path_cap,
+                          if (isTRUE(ti$cross)) ", cond. on parent" else "")
       cat(sprintf("    - %-14s %s%s\n", ti$name, role,
                   if (ti$rows_dropped > 0)
                     paste0(" (", ti$rows_dropped, " rows dropped)") else ""))

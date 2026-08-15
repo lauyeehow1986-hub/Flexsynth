@@ -282,16 +282,53 @@ it:
 check_linkage(res_link)
 ```
 
-Two first-cut limitations under DP: child variables are modelled by their own
-within-table marginals (cross-table statistical coupling — the parent→child
-conditioning that Track A preserves — is *not* retained under DP, only referential
-integrity), and within-table longitudinal (Markov) structure is not modelled for a
-linked table. Constraints are refused, as elsewhere under DP.
+By default each child table's variables are modelled by their own within-table
+marginals, so the synthetic child *links* to a synthetic parent but is
+statistically independent of it.
+
+### Conditioning children on the synthetic parent
+
+`dp_control(cross_table = TRUE)` closes that gap. For each child table with a
+modellable immediate parent, the engine also measures **parent-by-child joint
+marginals** — counted at the child grain (one observation per child row, at the
+parent's value carried down the foreign key). Their person-sensitivity is the
+child's path cap, exactly like a child one-way marginal, so they fold into the
+same composed budget. The parent's variables then enter the child's Chow-Liu
+structure as fixed context nodes, and at generation the synthetic parent's
+already-drawn value conditions the child draw:
+
+```{r linked-cross}
+dp_cross <- dp_control(
+  epsilon = 4, mechanism = "laplace", cross_table = TRUE,
+  max_rows_per_person = list(admissions = 6),
+  domain = "public",
+  bounds = list(age = c(18, 100), los = c(0, 60)))
+
+res_cross <- synth_linked(
+  tables     = list(patients = patients, admissions = adm),
+  structures = list(patients = ~ id, admissions = ~ id / admission_id),
+  keys       = list(patients = "id", admissions = c("id", "admission_id")),
+  privacy    = dp_cross, seed = 1)
+res_cross$privacy
+```
+
+The accounting now lists `admissions` as `cond. on parent` and the extra joints
+raise the histogram count and the per-cell noise — the price of the added
+structure, still inside the same $(\epsilon, \delta)$. Each child variable's
+single strongest predictor may be a parent variable or another child variable
+(under `dependence = "independent"` it is the best parent variable only), and a
+three-level hierarchy chains it: a grandchild conditions on its already-conditioned
+parent. Only the *immediate* parent conditions a child; deeper ancestors reach it
+through the parent's synthesised values, as in Track A.
+
+Remaining limitation under DP: within-table longitudinal (Markov) structure is not
+modelled for a linked table. Constraints are refused, as elsewhere under DP.
 
 ## What Track B does *not* do (yet)
 
-- **Cross-table conditioning** under linked DP: only referential integrity and
-  per-table marginals are preserved, not the parent→child statistical coupling.
+- **Cross-table conditioning beyond the immediate parent**, and within-table
+  longitudinal structure for a linked child, are not modelled;
+  `cross_table = TRUE` conditions each child on its immediate parent only.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
 - Publicly-declared baseline columns (held exactly constant within a person

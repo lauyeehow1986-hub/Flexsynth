@@ -125,8 +125,12 @@ dp_res$privacy                           # the (ε, δ) accounting record
 DP works for a flat table (`~ id`), a longitudinal one (`~ id / visit`, a DP
 Markov model over visits), and a whole linked hierarchy (`synth_linked(...,
 privacy = dp_control(...))`, at the root-entity grain) — all with exact
-Laplace / zCDP-Gaussian accounting. See `vignette("differential-privacy")` for
-scope and the honest utility trade-off.
+Laplace / zCDP-Gaussian accounting. For a linked release,
+`dp_control(cross_table = TRUE)` additionally conditions each child table's
+variables on the synthetic parent's attributes (measured parent-by-child joints,
+composed into the same budget), so cross-table dependence survives — not just the
+key link. See `vignette("differential-privacy")` for scope and the honest utility
+trade-off.
 
 ## Learn more
 

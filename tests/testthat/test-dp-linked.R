@@ -226,3 +226,204 @@ test_that("dp_control accepts and validates per-table caps", {
   expect_identical(dp_control(epsilon = 1, max_rows_per_person = 4)$max_rows_per_person,
                    4L)
 })
+
+# ---------------------------------------------------------------------------
+# Cross-table conditioning (dp_control(cross_table = TRUE))
+# ---------------------------------------------------------------------------
+
+# A root -> child hierarchy with a strong parent-driven child category, so the
+# conditioning signal is unambiguous: an admission's `ward` equals its patient's
+# `grp` ~85% of the time. Without cross-table conditioning the two are
+# independent in the synthetic data.
+lk_grp <- function(np = 300, seed = 1) {
+  set.seed(seed)
+  grp <- factor(sample(c("A", "B", "C"), np, TRUE))
+  patients <- data.frame(id = seq_len(np), grp = grp, stringsAsFactors = FALSE)
+  adm <- do.call(rbind, lapply(seq_len(np), function(i) {
+    n <- 1L + stats::rpois(1, 1)
+    g <- as.character(grp[i])
+    ward <- ifelse(stats::runif(n) < 0.85, g, sample(c("A", "B", "C"), n, TRUE))
+    data.frame(id = i, admission_id = seq_len(n),
+               ward = factor(ward, levels = c("A", "B", "C")),
+               stringsAsFactors = FALSE)
+  }))
+  list(tables = list(patients = patients, admissions = adm),
+       structures = list(patients = ~ id, admissions = ~ id / admission_id),
+       keys = list(patients = "id", admissions = c("id", "admission_id")))
+}
+
+test_that("cross_table conditioning is exactly composed (Laplace, tree)", {
+  d <- lk_two()
+  cap <- 5L; eps <- 8
+  dp <- dp_control(epsilon = eps, mechanism = "laplace", dependence = "tree",
+                   cross_table = TRUE, max_rows_per_person = cap,
+                   domain = "public", bounds = pub2)
+  res <- synth_linked(d$tables, d$structures, d$keys, privacy = dp, seed = 1)
+  # patients (root, tree, 2 vars): 2 + C(2,2) = 3, path 1
+  # admissions (child cross, tree, nC = 1, nP = 2): 1 + 1*2 = 3, path cap
+  #   + count histogram, sensitivity path_cap[patients] = 1
+  total_l1 <- 3 * 1 + 3 * cap + 1
+  expect_equal(res$privacy$noise, total_l1 / eps)
+  expect_equal(res$privacy$n_marginals, 3L + 3L + 1L)
+
+  info <- stats::setNames(res$privacy$linked$tables,
+                          vapply(res$privacy$linked$tables,
+                                 function(x) x$name, character(1)))
+  expect_false(isTRUE(info$patients$cross))          # root never conditioned
+  expect_true(isTRUE(info$admissions$cross))
+  expect_equal(info$admissions$n_var_marg, 3L)       # 1 own + 2 parent-by-child
+})
+
+test_that("cross_table adds parent-by-child joints on top of the no-cross release", {
+  d <- lk_two()
+  cap <- 5L; eps <- 8
+  base <- dp_control(epsilon = eps, mechanism = "laplace", dependence = "independent",
+                     max_rows_per_person = cap, domain = "public", bounds = pub2)
+  cross <- dp_control(epsilon = eps, mechanism = "laplace", dependence = "independent",
+                      cross_table = TRUE, max_rows_per_person = cap,
+                      domain = "public", bounds = pub2)
+  r0 <- synth_linked(d$tables, d$structures, d$keys, privacy = base, seed = 1)
+  rc <- synth_linked(d$tables, d$structures, d$keys, privacy = cross, seed = 1)
+  # base: patients 2 + admissions (1 var + count) = 4 histograms, L1 = 2 + cap + 1
+  # cross adds nC*nP = 1*2 parent-by-child joints at the child path cap:
+  expect_equal(r0$privacy$n_marginals, 4L)
+  expect_equal(rc$privacy$n_marginals, 6L)           # +2 joints
+  expect_equal(r0$privacy$noise, (2 + cap + 1) / eps)
+  expect_equal(rc$privacy$noise, (2 + (1 + 1 * 2) * cap + 1) / eps)
+})
+
+test_that("cross_table composition is exact under the Gaussian mechanism", {
+  d <- lk_two()
+  cap <- 5L; eps <- 8; delta <- 1e-5
+  dp <- dp_control(epsilon = eps, delta = delta, mechanism = "gaussian",
+                   dependence = "independent", cross_table = TRUE,
+                   max_rows_per_person = cap, domain = "public", bounds = pub2)
+  res <- synth_linked(d$tables, d$structures, d$keys, privacy = dp, seed = 1)
+  # summed squared L2: patients 2*1 + admissions (1 + 1*2)*cap^2 + count 1
+  sum_sq <- 2 * 1 + (1 + 1 * 2) * cap^2 + 1
+  rho <- (sqrt(log(1 / delta) + eps) - sqrt(log(1 / delta)))^2
+  expect_equal(res$privacy$noise, sqrt(sum_sq / (2 * rho)))
+})
+
+test_that("cross_table recovers a parent-driven child category the default drops", {
+  d <- lk_grp()
+  agree <- function(res) {
+    s <- as.list(res)
+    m <- merge(s$admissions, s$patients, by = "id")
+    mean(as.character(m$ward) == as.character(m$grp))
+  }
+  dpc <- dp_control(epsilon = 20, mechanism = "laplace", dependence = "tree",
+                    cross_table = TRUE, max_rows_per_person = 6, domain = "public")
+  dp0 <- dp_control(epsilon = 20, mechanism = "laplace", dependence = "tree",
+                    cross_table = FALSE, max_rows_per_person = 6, domain = "public")
+  rc <- synth_linked(d$tables, d$structures, d$keys, privacy = dpc, seed = 2)
+  r0 <- synth_linked(d$tables, d$structures, d$keys, privacy = dp0, seed = 2)
+  # Real agreement ~0.85; cross recovers it, the default collapses to ~chance.
+  expect_gt(agree(rc), 0.6)
+  expect_lt(agree(r0), 0.45)
+  expect_gt(agree(rc) - agree(r0), 0.2)
+})
+
+test_that("cross_table keeps referential integrity and reproduces on a seed", {
+  d <- lk_grp(np = 150)
+  dp <- dp_control(epsilon = 10, mechanism = "laplace", cross_table = TRUE,
+                   max_rows_per_person = 5, domain = "public")
+  a <- synth_linked(d$tables, d$structures, d$keys, privacy = dp, seed = 9)
+  b <- synth_linked(d$tables, d$structures, d$keys, privacy = dp, seed = 9)
+  expect_equal(as.list(a)$admissions, as.list(b)$admissions)
+  cl <- check_linkage(a)
+  expect_true(all(cl$duplicate_keys == FALSE))
+  expect_true(all(cl$orphan_rows[!is.na(cl$orphan_rows)] == 0))
+})
+
+test_that("cross_table conditions a grandchild on its (conditioned) parent, 3 levels", {
+  set.seed(3); np <- 80
+  patients <- data.frame(id = seq_len(np), age = round(stats::rnorm(np, 60, 10)))
+  adm <- do.call(rbind, lapply(seq_len(np), function(pid) {
+    n <- 1L + stats::rpois(1, 1); base <- (patients$age[pid] - 60) / 10
+    data.frame(id = pid, admission_id = seq_len(n),
+               los = pmax(1L, round(4 + 2 * base + stats::rnorm(n))))
+  }))
+  labs <- do.call(rbind, lapply(seq_len(nrow(adm)), function(i) {
+    n <- 1L + stats::rpois(1, 1)
+    data.frame(id = adm$id[i], admission_id = adm$admission_id[i],
+               lab_id = seq_len(n), value = round(adm$los[i] + stats::rnorm(n), 1))
+  }))
+  tabs <- list(patients = patients, admissions = adm, labs = labs)
+  strs <- list(patients = ~ id, admissions = ~ id / admission_id,
+               labs = ~ id / admission_id / lab_id)
+  kys <- list(patients = "id", admissions = c("id", "admission_id"),
+              labs = c("id", "admission_id", "lab_id"))
+  dp <- dp_control(epsilon = 15, mechanism = "laplace", dependence = "tree",
+                   cross_table = TRUE,
+                   max_rows_per_person = list(admissions = 4, labs = 3),
+                   domain = "public",
+                   bounds = list(age = c(20, 100), los = c(0, 40), value = c(0, 45)))
+  res <- synth_linked(tabs, strs, kys, privacy = dp, seed = 1)
+
+  info <- stats::setNames(res$privacy$linked$tables,
+                          vapply(res$privacy$linked$tables,
+                                 function(x) x$name, character(1)))
+  expect_true(isTRUE(info$admissions$cross))
+  expect_true(isTRUE(info$labs$cross))
+  # patients 1 (path 1) + admissions (1 own + 1 joint)*4 + count 1
+  #   + labs (1 own + 1 joint)*12 + count 4
+  total_l1 <- 1 * 1 + 2 * 4 + 1 + 2 * 12 + 4
+  expect_equal(res$privacy$noise, total_l1 / 15)
+  expect_true(all(res$syn$labs$id %in% res$syn$admissions$id))
+})
+
+test_that("cross_table with no modellable parent variable falls back cleanly", {
+  # Root has only its key (age moved to the child): admissions cannot condition
+  # on a parent variable, so cross_table adds nothing and no error is raised.
+  d <- lk_two()
+  d$tables$patients <- d$tables$patients[c("id", "sex")]   # keep one root var
+  dp_cross <- dp_control(epsilon = 8, mechanism = "laplace", dependence = "independent",
+                         cross_table = TRUE, max_rows_per_person = 5,
+                         domain = "public", bounds = pub2)
+  dp_plain <- dp_control(epsilon = 8, mechanism = "laplace", dependence = "independent",
+                         cross_table = FALSE, max_rows_per_person = 5,
+                         domain = "public", bounds = pub2)
+  rc <- synth_linked(d$tables, d$structures, d$keys, privacy = dp_cross, seed = 1)
+  rp <- synth_linked(d$tables, d$structures, d$keys, privacy = dp_plain, seed = 1)
+  # sex is a real parent var, so admissions DOES condition on it here:
+  info <- stats::setNames(rc$privacy$linked$tables,
+                          vapply(rc$privacy$linked$tables,
+                                 function(x) x$name, character(1)))
+  expect_true(isTRUE(info$admissions$cross))
+  # But a value-less root (only its key) leaves nothing to condition on:
+  e <- lk_two()
+  e$tables$patients <- e$tables$patients[c("id", "age")]   # root still has a var
+  # child with no own variable: cross is a no-op (nothing to model)
+  e$tables$admissions <- e$tables$admissions[c("id", "admission_id")]
+  dp <- dp_control(epsilon = 8, mechanism = "laplace", cross_table = TRUE,
+                   max_rows_per_person = 5, domain = "public",
+                   bounds = list(age = c(20, 100)))
+  r <- synth_linked(e$tables, e$structures, e$keys, privacy = dp, seed = 1)
+  info2 <- stats::setNames(r$privacy$linked$tables,
+                           vapply(r$privacy$linked$tables,
+                                  function(x) x$name, character(1)))
+  expect_false(isTRUE(info2$admissions$cross))       # no own var -> no conditioning
+})
+
+test_that("dp_control validates cross_table and the flat engine ignores it", {
+  expect_error(dp_control(epsilon = 1, cross_table = "yes"),
+               "single TRUE or FALSE")
+  expect_error(dp_control(epsilon = 1, cross_table = c(TRUE, FALSE)),
+               "single TRUE or FALSE")
+  expect_true(dp_control(epsilon = 1, cross_table = TRUE)$cross_table)
+  # A flat single-table release has no parent table, so cross_table is inert.
+  df <- data.frame(id = 1:40, y = stats::rnorm(40), z = stats::rnorm(40))
+  base <- synth(df, structure = ~ id,
+                privacy = dp_control(epsilon = 4, mechanism = "laplace",
+                                     domain = "public",
+                                     bounds = list(y = c(-4, 4), z = c(-4, 4))),
+                seed = 1)
+  cross <- synth(df, structure = ~ id,
+                 privacy = dp_control(epsilon = 4, mechanism = "laplace",
+                                      cross_table = TRUE, domain = "public",
+                                      bounds = list(y = c(-4, 4), z = c(-4, 4))),
+                 seed = 1)
+  expect_equal(base$privacy$n_marginals, cross$privacy$n_marginals)
+  expect_equal(base$privacy$noise, cross$privacy$noise)
+})

@@ -63,6 +63,19 @@
 #' @param dependence Dependence structure of the generative model: `"tree"`
 #'   (default; a Chow-Liu tree over pairwise marginals) or `"independent"`
 #'   (one-way marginals only).
+#' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
+#'   table's variables are conditioned on the **synthetic parent's** attributes:
+#'   for each child table with a modellable immediate parent, parent-by-child
+#'   joint marginals are measured (at the child's per-entity path-cap sensitivity,
+#'   the same as a child one-way marginal) and folded into the child's Chow-Liu
+#'   structure as fixed context nodes, so each child variable's single strongest
+#'   predictor may be a parent variable or another child variable. The synthetic
+#'   parent's already-drawn value then conditions the child draw, so cross-table
+#'   statistical dependence — not just referential integrity — survives the noise.
+#'   Costs extra budget (the added joints compose into the same
+#'   (\eqn{\epsilon}, \eqn{\delta})); `FALSE` (default) keeps child variables on
+#'   their own within-table marginals. Ignored by flat / longitudinal `synth()`
+#'   releases, which have no parent table.
 #' @param bins Number of equal-width bins used to discretise each numeric
 #'   variable (default 12). Finer grids sharpen one-way marginals but make the
 #'   noisy two-way marginals used by `dependence = "tree"` weaker per cell, so a
@@ -94,6 +107,7 @@ dp_control <- function(epsilon,
                        max_rows_per_person = NULL,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
+                       cross_table = FALSE,
                        bins = 12L,
                        bounds = NULL,
                        domain = c("dp", "public", "data"),
@@ -136,6 +150,10 @@ dp_control <- function(epsilon,
                   "per table, for linked DP)."), call. = FALSE)
     }
   }
+  if (!is.logical(cross_table) || length(cross_table) != 1L ||
+      is.na(cross_table)) {
+    stop("`cross_table` must be a single TRUE or FALSE.", call. = FALSE)
+  }
   if (!is.numeric(bins) || length(bins) != 1L || is.na(bins) || bins < 2 ||
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
@@ -166,6 +184,7 @@ dp_control <- function(epsilon,
       max_rows_per_person = max_rows_per_person,   # NULL, integer, or named ints
       mechanism = mechanism,
       dependence = dependence,
+      cross_table = cross_table,
       bins = as.integer(bins),
       bounds = bounds,
       domain = domain,
@@ -183,6 +202,8 @@ print.dp_control <- function(x, ...) {
   cat("  unit      :", x$unit, "\n")
   cat("  mechanism :", x$mechanism, "\n")
   cat("  dependence:", x$dependence, "\n")
+  if (isTRUE(x$cross_table))
+    cat("  cross-table: parent-conditioned child vars (linked DP)\n")
   cat("  bins      :", x$bins, "\n")
   cat("  domain    :", x$domain,
       if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),

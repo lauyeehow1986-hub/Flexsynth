@@ -1,5 +1,24 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: cross-table conditioning under DP.** `dp_control(cross_table =
+  TRUE)` makes a linked DP release model each child table's variables on the
+  **synthetic parent's** attributes, not just link to it. For every child table
+  with a modellable immediate parent, parent-by-child joint marginals are
+  measured at the child grain — one observation per child row, at the parent's
+  value carried down the foreign key — so their person-sensitivity is the child's
+  per-entity *path cap*, identical to a child one-way marginal, and they fold
+  into the same exactly-composed (\eqn{\epsilon}, \eqn{\delta}) budget. The parent
+  variables enter the child's Chow-Liu structure as fixed context nodes (a seeded
+  maximum-weight spanning tree), so each child variable's single strongest
+  predictor may be a parent variable or another child variable; under
+  `dependence = "independent"` each child variable conditions on its single best
+  parent variable only. At generation the synthetic parent's already-drawn value
+  conditions the child draw, and a three-level hierarchy chains it (a grandchild
+  conditions on its already-conditioned parent). This preserves genuine
+  cross-table statistical dependence — the association the first linked-DP release
+  dropped — at the cost of the extra joints' share of budget. `cross_table =
+  FALSE` (default) is unchanged; the flag is inert for flat / longitudinal
+  `synth()` releases, which have no parent table.
 * **Track B: linked multi-table DP.** `synth_linked()` now accepts a
   `dp_control()`, producing a differentially private release across a whole key
   hierarchy at once. The privacy unit is the **root entity**: adding or removing

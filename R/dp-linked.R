@@ -33,12 +33,19 @@
 # position, and fill the child's variables from its own noisy marginals. Drawing
 # `m` datasets from the fitted models is post-processing (no extra budget).
 #
-# First-version scope (documented in the DP vignette): child variables are
-# modelled by their own within-table marginals, NOT conditioned on the parent's
-# synthesised attributes (cross-table statistical coupling is not preserved under
-# DP yet - only referential integrity is). Within-table longitudinal (Markov)
-# structure is not modelled for a linked table either; the own index is
-# regenerated positionally. Constraints and `unit = "row"` are refused.
+# Cross-table conditioning is opt-in via dp_control(cross_table = TRUE): a child
+# table's variables are then conditioned on the synthetic parent's attributes by
+# measuring parent-by-child joint marginals (at the child's path-cap sensitivity)
+# and folding the parent variables into the child's Chow-Liu structure as fixed
+# context nodes (see dp-linked-cross.R). With cross_table = FALSE (default) child
+# variables are modelled by their own within-table marginals - the synthetic child
+# links to a synthetic parent but is statistically independent of it.
+#
+# Remaining scope (documented in the DP vignette): only the IMMEDIATE parent
+# conditions a child (deeper ancestors reach it through the parent's synthesised
+# values). Within-table longitudinal (Markov) structure is not modelled for a
+# linked table; the own index is regenerated positionally. Constraints and
+# `unit = "row"` are refused.
 
 # Resolve the branching cap for one table from dp$max_rows_per_person, which is
 # either a single integer (applied to every child table) or a named integer
@@ -208,15 +215,31 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
     est_vars[[t]] <- if (dp$domain == "dp") mb else character(0)
   }
 
+  # Which child tables condition on their parent (cross-table DP): opt-in, needs a
+  # modellable immediate parent and >= 1 own variable. Computed once so the
+  # composition and the fitted models agree exactly on what is measured.
+  use_cross <- stats::setNames(logical(length(order)), order)
+  for (t in order) {
+    p <- hierarchy$parent[[t]]
+    use_cross[[t]] <- isTRUE(dp$cross_table) && !is.na(p) &&
+      length(vars[[t]]) > 0L && length(vars[[p]]) > 0L
+  }
+  n_var_marg_t <- function(t) {
+    if (use_cross[[t]])
+      dp_child_nvarmarg(length(vars[[t]]), length(vars[[hierarchy$parent[[t]]]]), dp)
+    else dp_n_var_marg(length(vars[[t]]), dp)
+  }
+
   # ---- Exact composition over the whole release ---------------------------
   # total L1 (Laplace) and summed squared L2 (Gaussian zCDP) across every
-  # histogram: root/child variable marginals + child count histograms.
+  # histogram: root/child variable marginals (incl. parent-by-child joints when
+  # cross_table) + child count histograms.
   total_l1 <- 0
   sum_sq   <- 0
   n_hist   <- 0L
   for (t in order) {
     pc  <- as.numeric(caps$path[[t]])
-    nvm <- dp_n_var_marg(length(vars[[t]]), dp)
+    nvm <- n_var_marg_t(t)
     total_l1 <- total_l1 + nvm * pc
     sum_sq   <- sum_sq   + nvm * pc^2
     n_hist   <- n_hist + as.integer(nvm)
@@ -255,16 +278,30 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
   calib <- dp_make_noise(dp, total_l1, sum_sq, budget_frac = marg_frac)
 
   # ---- Fit per-table models on the capped data ----------------------------
+  # Topological order guarantees each parent's fit (domain + variable set) is
+  # available before its children, which cross-table conditioning needs.
   fit <- stats::setNames(vector("list", length(order)), order)
   for (t in order) {
     vt  <- vars[[t]]
     dom <- if (length(vt)) dp_build_domain(cdata[[t]], vt, dp, est_bounds[[t]]) else list()
     nbins <- if (length(vt)) vapply(vt, function(v) dom[[v]]$nbin, integer(1)) else integer(0)
-    var_model <- NULL
+    var_model  <- NULL
+    cross_model <- NULL
     if (length(vt)) {
       codes <- stats::setNames(
         lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
-      var_model <- dp_fit_model(codes, nbins, dp, calib)
+      if (use_cross[[t]]) {
+        p <- hierarchy$parent[[t]]
+        pvars <- fit[[p]]$vars
+        parent_dom <- fit[[p]]$dom
+        pctx <- dp_parent_ctx_codes(cdata, hierarchy, t, p, parent_dom, pvars)
+        parent_nbins <- stats::setNames(
+          vapply(pvars, function(u) parent_dom[[u]]$nbin, integer(1)), pvars)
+        cross_model <- dp_fit_child_cross(codes, nbins, pctx, parent_nbins,
+                                          dp, calib)
+      } else {
+        var_model <- dp_fit_model(codes, nbins, dp, calib)
+      }
     }
     count_prob <- NULL
     if (!is.na(hierarchy$parent[[t]])) {
@@ -279,7 +316,7 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
       count_prob <- dp_normalise(pmax(calib$add_noise(hist), 0))
     }
     fit[[t]] <- list(vars = vt, dom = dom, var_model = var_model,
-                     count_prob = count_prob)
+                     cross_model = cross_model, count_prob = count_prob)
   }
 
   # ---- Generation ---------------------------------------------------------
@@ -288,13 +325,18 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
 
   make_one <- function() {
     syn <- stats::setNames(vector("list", length(order)), order)
+    # Cell codes behind each synthetic table (cols = that table's variables),
+    # kept so a cross-table child can condition on its synthetic parent's codes.
+    codes <- stats::setNames(vector("list", length(order)), order)
     for (t in order) {
       p  <- hierarchy$parent[[t]]
       f  <- fit[[t]]
       if (is.na(p)) {
         # Root: draw entities, assign a surrogate key 1..n.
         n_root <- n_root_target %||% max(1L, f$var_model$n_est)
-        frame <- dp_decode_frame(dp_sample_codes(f$var_model, n_root), f$dom)
+        cmat <- dp_sample_codes(f$var_model, n_root)
+        codes[[t]] <- cmat
+        frame <- dp_decode_frame(cmat, f$dom)
         frame[[hierarchy$keys[[t]][1L]]] <- seq_len(n_root)
         syn[[t]] <- frame[names(tables[[t]])]
       } else {
@@ -307,6 +349,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
           out <- tables[[t]][0, names(tables[[t]]), drop = FALSE]
           rownames(out) <- NULL
           syn[[t]] <- out
+          codes[[t]] <- matrix(NA_integer_, 0L, length(f$vars),
+                               dimnames = list(NULL, f$vars))
           next
         }
         rep_rows <- rep(which(keep), counts[keep])
@@ -314,9 +358,19 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         skel[[own_col]] <- dp_index_as_position(tables[[t]][[own_col]],
                                                 sequence(counts[keep]))
         if (length(f$vars)) {
-          vframe <- dp_decode_frame(dp_sample_codes(f$var_model, length(rep_rows)),
-                                    f$dom)
+          if (!is.null(f$cross_model)) {
+            pvars <- f$cross_model$pvars
+            pctx <- stats::setNames(
+              lapply(pvars, function(u) codes[[p]][rep_rows, u]), pvars)
+            cmat <- dp_sample_child_codes(f$cross_model, pctx, length(rep_rows))
+          } else {
+            cmat <- dp_sample_codes(f$var_model, length(rep_rows))
+          }
+          codes[[t]] <- cmat
+          vframe <- dp_decode_frame(cmat, f$dom)
           for (v in f$vars) skel[[v]] <- vframe[[v]]
+        } else {
+          codes[[t]] <- matrix(NA_integer_, length(rep_rows), 0L)
         }
         rownames(skel) <- NULL
         syn[[t]] <- skel[names(tables[[t]])]
@@ -336,7 +390,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
          parent = if (is.na(p)) NA_character_ else p,
          local_cap = caps$local[[t]],
          path_cap = caps$path[[t]],
-         n_var_marg = as.integer(dp_n_var_marg(length(vars[[t]]), dp)),
+         n_var_marg = as.integer(n_var_marg_t(t)),
+         cross = use_cross[[t]],
          count_sensitivity = if (is.na(p)) NA_integer_ else caps$path[[p]],
          rows_dropped = dropped[[t]])
   })

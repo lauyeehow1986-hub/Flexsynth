@@ -11,6 +11,7 @@ dp_control(
   max_rows_per_person = NULL,
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
+  cross_table = FALSE,
   bins = 12L,
   bounds = NULL,
   domain = c("dp", "public", "data"),
@@ -45,6 +46,20 @@ table, or a \strong{named} vector/list keyed by child-table name (e.g.
 \item{dependence}{Dependence structure of the generative model: \code{"tree"}
 (default; a Chow-Liu tree over pairwise marginals) or \code{"independent"}
 (one-way marginals only).}
+
+\item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
+table's variables are conditioned on the \strong{synthetic parent's} attributes:
+for each child table with a modellable immediate parent, parent-by-child
+joint marginals are measured (at the child's per-entity path-cap sensitivity,
+the same as a child one-way marginal) and folded into the child's Chow-Liu
+structure as fixed context nodes, so each child variable's single strongest
+predictor may be a parent variable or another child variable. The synthetic
+parent's already-drawn value then conditions the child draw, so cross-table
+statistical dependence — not just referential integrity — survives the noise.
+Costs extra budget (the added joints compose into the same
+(\eqn{\epsilon}, \eqn{\delta})); \code{FALSE} (default) keeps child variables on
+their own within-table marginals. Ignored by flat / longitudinal \code{synth()}
+releases, which have no parent table.}
 
 \item{bins}{Number of equal-width bins used to discretise each numeric
 variable (default 12). Finer grids sharpen one-way marginals but make the

@@ -125,9 +125,18 @@ engine; Track B is the opt-in differentially private engine.
   referential integrity holds by construction. First version: child variables use
   their own within-table marginals (no cross-table conditioning under DP), no
   within-table longitudinal model, constraints / `unit = "row"` refused.
-- Future: **cross-table conditioning under DP** (measure parent×child joint
-  marginals so child variables depend on the synthetic parent, not just link to
-  it); budget-efficient structure learning (measure structure cheaply, then only
+- [x] **Cross-table conditioning under DP** (`dp_control(cross_table = TRUE)`).
+  A child table's variables are conditioned on the synthetic parent's attributes:
+  parent-by-child joint marginals are measured at the child grain (person
+  sensitivity = the child's path cap, like a child one-way marginal, so they
+  compose into the same exact budget) and the parent variables enter the child's
+  Chow-Liu structure as fixed context nodes (a seeded maximum-weight spanning
+  tree). Each child variable's single strongest predictor may then be a parent
+  variable or another child variable (`dependence = "independent"` uses the best
+  parent variable only); the synthetic parent's drawn value conditions the child
+  draw, chaining across three levels. Immediate-parent only (deeper ancestors
+  reach a child through its parent). `cross_table = FALSE` (default) unchanged.
+- Future: budget-efficient structure learning (measure structure cheaply, then only
   the chosen tree's edges, instead of measuring all pairwise marginals); PrivBayes
   greedy degree>1 networks and AIM-style adaptive marginal selection;
   publicly-declared baseline columns held exactly constant within a person under
@@ -155,8 +164,8 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7 (cross-table
-  conditioning, budget-efficient structure learning, baseline columns held
-  constant, higher-order transitions); DP set-union for discovering `character`
+- Future: the further DP extensions listed under Phase 7 (budget-efficient
+  structure learning, baseline columns held constant, higher-order transitions,
+  combining linked + longitudinal DP); DP set-union for discovering `character`
   category sets under `domain = "dp"` (currently public factor levels are
   required); and CRAN submission once a stable `0.1.0` API is tagged.
