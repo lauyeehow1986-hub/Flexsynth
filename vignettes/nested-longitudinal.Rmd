@@ -1,0 +1,112 @@
+---
+title: "Nested and longitudinal data"
+output:
+  litedown::html_format:
+    meta:
+      css: ["@default"]
+vignette: >
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteIndexEntry{Nested and longitudinal data}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(1)
+library(flexsynth)
+```
+
+## Long format, natively
+
+Repeated-measures and nested designs are the reason `flexsynth` works in long
+format. You never pivot to wide: the `structure` formula declares the hierarchy,
+for example `~ id / visit` (patients, each with a sequence of visits).
+
+We simulate a longitudinal cohort. Each patient has a fixed baseline (`age`,
+`sex`) and a time-varying systolic blood pressure that drifts over visits — an
+autocorrelated series with an unequal number of visits per patient.
+
+```{r data}
+n_pat <- 120
+base <- data.frame(
+  id  = seq_len(n_pat),
+  age = round(rnorm(n_pat, 60, 10)),
+  sex = sample(c("F", "M"), n_pat, replace = TRUE)
+)
+n_visits <- 1 + rpois(n_pat, 2)                 # unequal length units
+
+rows <- lapply(seq_len(n_pat), function(i) {
+  k <- n_visits[i]
+  sbp <- numeric(k)
+  sbp[1] <- 0.6 * base$age[i] + rnorm(1, 95, 8)
+  for (t in seq_len(k)[-1]) sbp[t] <- 0.8 * sbp[t - 1] + rnorm(1, 26, 6)
+  data.frame(id = base$id[i], visit = seq_len(k),
+             age = base$age[i], sex = base$sex[i],
+             sbp = round(sbp))
+})
+real <- do.call(rbind, rows)
+head(real, 8)
+```
+
+## Synthesising the hierarchy
+
+```{r synth}
+res <- synth(real, structure = ~ id / visit, seed = 1)
+res
+```
+
+The engine detects that `age` and `sex` are constant within a patient
+(*subject-invariant*) and synthesises them **once per unit**, broadcasting them
+across that unit's visits, so a synthetic patient stays internally consistent.
+The number of visits per patient is drawn from the learned count distribution,
+and `sbp` is synthesised with an initial-state model plus a Markov transition
+that conditions on the previous visit — so the within-patient autocorrelation
+survives.
+
+```{r structure-checks}
+syn <- as.data.frame(res)
+
+# unequal-length units are reproduced, not fixed-width
+table(table(syn$id))
+
+# baseline stays constant within each synthetic patient
+all(tapply(syn$age, syn$id, function(a) length(unique(a)) == 1))
+```
+
+## Within-unit temporal constraints
+
+`rule()` with `scope = "unit"` evaluates a rule per unit, which is how you
+express temporal logic. Suppose visits must be numbered consecutively from 1 and
+`sbp` must stay in a plausible range on every visit:
+
+```{r rules}
+res_c <- synth(
+  real, ~ id / visit,
+  constraints = list(
+    rule(sbp >= 60 & sbp <= 260),                       # row scope (default)
+    rule(all(diff(visit) == 1), scope = "unit")         # consecutive visits
+  ),
+  seed = 1
+)
+syn_c <- as.data.frame(res_c)
+
+# every synthetic unit's visits are 1, 2, 3, ...
+all(tapply(syn_c$visit, syn_c$id,
+           function(v) identical(v, seq_along(v))))
+```
+
+Units that violate any rule are regenerated (bounded by
+`constraint_max_tries` in `synth_control()`), so the nested structure is never
+broken to satisfy a constraint.
+
+## Diagnostics
+
+The utility and risk diagnostics work unchanged on long data.
+
+```{r diagnose}
+diagnose(real, res, vars = c("age", "sex", "sbp"))
+```
+
+Because visits share a patient, treat the diagnostics as descriptive: the pMSE
+here mixes baseline and time-varying columns rather than modelling the
+dependence explicitly.

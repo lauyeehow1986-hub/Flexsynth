@@ -1,0 +1,124 @@
+---
+title: "Linked multi-table cardiac data"
+output:
+  litedown::html_format:
+    meta:
+      css: ["@default"]
+vignette: >
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteIndexEntry{Linked multi-table cardiac data}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(20260815)
+library(flexsynth)
+```
+
+## A linked cardiac schema
+
+Real clinical data rarely lives in one table. Here we build a small, **fully
+synthetic** cardiac example (never real patient data): patients, their cardiac
+admissions, and the labs taken during each admission.
+
+```
+patients (id)
+  └─ admissions (id / admission_id)
+       └─ labs    (id / admission_id / lab_number)
+```
+
+```{r data}
+n_pat <- 50
+patients <- data.frame(
+  id     = seq_len(n_pat),
+  sex    = sample(c("F", "M"), n_pat, replace = TRUE, prob = c(0.45, 0.55)),
+  age    = round(rnorm(n_pat, 64, 11)),
+  smoker = sample(c(FALSE, TRUE), n_pat, replace = TRUE, prob = c(0.7, 0.3))
+)
+
+adm <- do.call(rbind, lapply(patients$id, function(pid) {
+  k <- 1 + rpois(1, 0.6)
+  data.frame(id = pid, admission_id = seq_len(k),
+             los_days = 1 + rpois(k, 3))
+}))
+
+labs <- do.call(rbind, lapply(seq_len(nrow(adm)), function(i) {
+  k <- 1 + rpois(1, 2)
+  data.frame(id = adm$id[i], admission_id = adm$admission_id[i],
+             lab_number = seq_len(k),
+             analyte = sample(c("troponin", "LDL", "creatinine"), k, replace = TRUE),
+             value   = round(abs(rnorm(k, 2, 1.5)), 2))
+}))
+
+tables <- list(patients = patients, admissions = adm, labs = labs)
+vapply(tables, nrow, integer(1))
+```
+
+## Joint synthesis with `synth_linked()`
+
+`synth_linked()` takes a `structures` formula per table and the `keys`, and
+reads the hierarchy from them: each table's key is its parent's key plus one more
+column. Root tables are synthesised with the single-table engine; child tables
+are generated from their **synthetic** parent, with foreign keys copied over so
+referential integrity holds by construction.
+
+```{r synth}
+structures <- list(
+  patients   = ~ id,
+  admissions = ~ id / admission_id,
+  labs       = ~ id / admission_id / lab_number
+)
+keys <- list(
+  patients   = "id",
+  admissions = c("id", "admission_id"),
+  labs       = c("id", "admission_id", "lab_number")
+)
+
+res <- synth_linked(tables, structures = structures, keys = keys, seed = 1)
+res
+```
+
+The number of children per parent is drawn from a learned count model
+(including parents with no children), and child variables are conditioned on the
+parent's synthesised attributes.
+
+## Verifying linkage
+
+`check_linkage()` confirms key uniqueness and the absence of orphan child rows.
+
+```{r check}
+syn <- as.list(res)
+check_linkage(res)
+
+# every synthetic lab points at a real (synthetic) admission — no orphans
+all(paste(syn$labs$id, syn$labs$admission_id) %in%
+    paste(syn$admissions$id, syn$admissions$admission_id))
+```
+
+## Per-table diagnostics
+
+`diagnose()` and `disclosure_risk()` accept the whole result and report one
+block per table.
+
+```{r diagnose}
+diagnose(tables, res)
+```
+
+`disclosure_risk()` is most meaningful per table with the genuinely identifying
+columns named (excluding surrogate keys such as `id`, which are regenerated):
+
+```{r risk}
+disclosure_risk(patients, syn$patients,
+                quasi = c("age", "sex", "smoker"), seed = 1)
+```
+
+Passing the whole objects (`disclosure_risk(tables, res)`) also works and
+defaults to all shared columns per table — quick, but it will include surrogate
+keys, so prefer naming `quasi` for a real release. Constraints (`rule()`)
+currently apply to single-table `synth()`; enforce cross-table logic on the
+parent table before linking.
+
+The example data here is synthetic. Track A output is high-utility but carries
+no formal privacy guarantee — always read the disclosure diagnostics before
+sharing.

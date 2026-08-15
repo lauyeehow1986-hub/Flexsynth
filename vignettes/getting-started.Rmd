@@ -1,0 +1,130 @@
+---
+title: "Getting started with flexsynth"
+output:
+  litedown::html_format:
+    meta:
+      css: ["@default"]
+vignette: >
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteIndexEntry{Getting started with flexsynth}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(1)
+library(flexsynth)
+```
+
+## What flexsynth does
+
+`flexsynth` generates synthetic data that reproduces the statistical structure
+of a real dataset without copying its records. The default **Track A** engine is
+a high-utility sequential synthesiser; it carries **no** formal privacy
+guarantee, so the package ships honest utility and disclosure-risk diagnostics
+so you can judge the trade-off yourself. (An opt-in differentially private
+**Track B** is a later roadmap phase.)
+
+## A first synthesis
+
+We start with a plain single-table dataset — one row per patient.
+
+```{r data}
+n <- 300
+real <- data.frame(
+  id     = seq_len(n),
+  age    = round(rnorm(n, 62, 11)),
+  sex    = sample(c("F", "M"), n, replace = TRUE, prob = c(0.45, 0.55)),
+  smoker = sample(c(FALSE, TRUE), n, replace = TRUE, prob = c(0.7, 0.3))
+)
+real$sbp <- round(0.6 * real$age + ifelse(real$smoker, 8, 0) + rnorm(n, 90, 10))
+head(real)
+```
+
+`synth()` takes the data and a `structure` formula naming the unit identifier.
+Here every row is its own unit, so the structure is just `~ id`.
+
+```{r synth}
+res <- synth(real, structure = ~ id, seed = 1)
+res
+syn <- as.data.frame(res)
+head(syn)
+```
+
+The unit identifier is regenerated, and every other column is synthesised in
+turn from a model fitted on the real data (the default `method = "cart"` draws
+from the matching leaf of a regression / classification tree).
+
+## Is the synthetic data any good? — `diagnose()`
+
+`diagnose()` compares real and synthetic data on three views: per-variable
+marginals (a Kolmogorov-Smirnov statistic for numeric variables, total-variation
+distance for categorical ones), the correlation structure, and a general
+**propensity (pMSE)** score — a model tries to tell real from synthetic records,
+and a `ratio` near 1 means it cannot.
+
+```{r diagnose}
+d <- diagnose(real, res)
+d
+```
+
+The `plot()` method overlays each marginal.
+
+```{r diag-plot, fig.width = 7, fig.height = 5}
+plot(d)
+```
+
+## How risky is it? — `disclosure_risk()`
+
+Synthetic data is **not** anonymisation. `disclosure_risk()` reports how much the
+synthetic data could leak about the real records: replicated uniques (real
+records that are unique on the quasi-identifiers and reproduced exactly),
+distance to closest record, and — given a holdout — a membership-inference
+check. Pass the genuinely identifying columns as `quasi` (not surrogate keys
+like the regenerated `id`).
+
+```{r risk}
+disclosure_risk(real, res, quasi = c("age", "sex", "smoker", "sbp"), seed = 1)
+```
+
+## Choosing a method
+
+Methods live in an extensible registry. Built-ins include `sample`, `cart`,
+`forest` (a bagged CART ensemble), `ctree` (via `partykit`), and the parametric
+numeric methods `norm` and `normrank`.
+
+```{r methods}
+list_methods()
+```
+
+Set one method for all variables, or per variable via `synth_control()`:
+
+```{r per-var}
+ctrl <- synth_control(method = c(sbp = "norm", age = "cart"))
+res2 <- synth(real, ~ id, tuning = ctrl, seed = 1)
+```
+
+You can register your own with `register_method()` — supply a `fit()` and a
+`draw()`.
+
+## Constraints
+
+`rule()` declares a logical constraint the synthetic data must satisfy;
+`synth()` enforces it by rejection sampling at the unit grain.
+
+```{r rules}
+res3 <- synth(real, ~ id,
+              constraints = rule(sbp >= 80 & sbp <= 220),
+              seed = 1)
+range(as.data.frame(res3)$sbp)
+```
+
+## Tuning
+
+`synth_control()` also exposes `smoothing` (kernel-smooth numeric draws) and
+`predictor_matrix` (restrict which variables may predict each target). See
+`?synth_control`.
+
+Track A output must never be described as differentially private. Use the
+diagnostics above to decide whether the utility / risk balance is acceptable for
+your release.

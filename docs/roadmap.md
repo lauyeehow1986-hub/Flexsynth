@@ -65,11 +65,19 @@ engine; Track B is the opt-in differentially private engine.
   built-ins; constraint enforcement for linked multi-table synthesis (currently
   single-table only); constraint-aware value repair instead of pure rejection.
 
-## Phase 5 — diagnostics / utility / safety
-- `diagnose()` + plots; `disclosure_risk()` (replicated uniques,
-  distance-to-closest-record, membership-inference check).
-- Three vignettes: getting started · nested hierarchical · multi-table linked
-  cardiac.
+## Phase 5 — diagnostics / utility / safety  *(done)*
+- [x] `diagnose()` — utility diagnostics (univariate KS / total-variation
+      distance, correlation-matrix difference, propensity pMSE with a null-ratio)
+      plus a base-graphics `plot()` method; dispatches over lists of tables.
+- [x] `disclosure_risk()` — replicated uniques, distance-to-closest-record (with
+      a real-to-real baseline), and an optional `holdout`-based
+      membership-inference check (AUC / attacker advantage); dispatches over
+      lists of tables.
+- [x] Three vignettes: getting started · nested / longitudinal · multi-table
+      linked cardiac (built pandoc-free with `litedown`).
+- Future: attribute-disclosure (correct-attribution probability) measures;
+      diagnostics that model the nested dependence explicitly rather than
+      pooling rows.
 
 ## Phase 6 — performance & extensibility
 - `data.table` fast-path behind the same API; parallelism; polish.

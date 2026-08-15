@@ -49,3 +49,20 @@
       draws (all numeric, or named variables); `predictor_matrix` restricts which
       variables may predict each target; `forest` hyperparameters (`ntree`,
       `mtry`) are honoured.
+* **Phase 5 — diagnostics, utility and disclosure risk.**
+    * **`diagnose()`.** Utility diagnostics comparing synthetic to real data:
+      per-variable marginal fit (Kolmogorov-Smirnov for numeric, total-variation
+      distance for categorical), the difference between the real and synthetic
+      correlation matrices, and a general propensity-score utility (pMSE) with a
+      null-expectation ratio (~1 when the two are indistinguishable). A
+      base-graphics `plot()` method overlays each marginal, and both `diagnose()`
+      and `disclosure_risk()` dispatch over a named list of tables (or a
+      `synth_linked_result`).
+    * **`disclosure_risk()`.** Empirical privacy diagnostics: replicated uniques
+      (real records unique on the quasi-identifiers and reproduced exactly),
+      distance to closest record with a real-to-real baseline, and — given a
+      `holdout` of non-training records — a membership-inference check reporting
+      an AUC and attacker advantage. Synthetic data is not anonymisation; these
+      make residual risk visible.
+    * **Vignettes.** Three vignettes (getting started, nested / longitudinal,
+      and multi-table linked cardiac), built pandoc-free with `litedown`.

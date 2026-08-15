@@ -18,6 +18,8 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Depends: R (>= 4.1)
 Imports:
+    graphics,
+    grDevices,
     stats,
     utils
 Suggests:
@@ -27,7 +29,8 @@ Suggests:
     partykit,
     data.table,
     knitr,
-    rmarkdown
+    litedown
 Config/testthat/edition: 3
+VignetteBuilder: litedown
 URL: https://github.com/lauyeehow1986-hub/Flexsynth
 BugReports: https://github.com/lauyeehow1986-hub/Flexsynth/issues
