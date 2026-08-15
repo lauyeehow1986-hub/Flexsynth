@@ -1,5 +1,17 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: baseline columns held exactly constant.** `dp_control(baseline =
+  c(...))` names subject-invariant columns in a longitudinal `synth()` release (a
+  `structure` with a nesting index). Those columns are modelled once in the
+  initial-state model — so their joint distribution and their correlation with the
+  first visit are preserved — and then broadcast unchanged to every row of a
+  synthetic unit, instead of being stepped through a transition matrix that would
+  let a baseline covariate drift across visits. Because a baseline column carries
+  no transition histogram, declaring it also **removes** that histogram from the
+  release, so the remaining measurements are sharper at the same exact
+  (\eqn{\epsilon}, \eqn{\delta}). Declaring a column baseline is public schema
+  knowledge and costs no budget; names that match no modelled column are ignored.
+  `baseline = NULL` (default) treats every column as time-varying.
 * **Track B: budget-efficient structure learning.** `dp_control(structure_frac =
   f)` learns the flat `dependence = "tree"` Chow-Liu structure from a cheap
   all-pairs scan that spends only the fraction `f` of the marginal budget, then

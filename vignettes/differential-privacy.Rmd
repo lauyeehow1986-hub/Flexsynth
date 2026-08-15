@@ -252,11 +252,36 @@ syn_long <- as.data.frame(res_long)
 c(real = lag1(long), synthetic = lag1(syn_long))
 ```
 
-Two honest limitations of this first-order model: every non-index column is
-treated as time-varying (a genuinely constant baseline covariate may therefore
-drift slightly between a synthetic person's visits), and transitions are
-per-variable (cross-variable coupling is carried at `t = 1` by the initial-state
-tree, not re-measured at each later step).
+### Baseline columns held exactly constant
+
+By default every non-index column is treated as time-varying, so a genuinely
+subject-invariant covariate (here `sex`) is stepped through its own transition
+matrix and can drift between a synthetic person's visits. If you know a column is
+constant within a person — public schema knowledge, not something read from the
+data — name it in `baseline`. It is then modelled **once** in the initial-state
+model (keeping its distribution and its correlation with the first visit) and
+broadcast unchanged to every row, so it is exactly constant within each synthetic
+unit. Because a baseline column needs no transition histogram, declaring it also
+*removes* that histogram from the release, so the remaining measurements are
+sharper at the same (\(\epsilon\), \(\delta\)):
+
+```{r baseline}
+res_base <- synth(long, structure = ~ id / visit,
+                  privacy = dp_control(epsilon = 8, mechanism = "laplace",
+                                       max_rows_per_person = 4,
+                                       bounds = list(sbp = c(60, 240)),
+                                       baseline = "sex"),
+                  seed = 1)
+
+# every synthetic person now has a single sex across their visits
+syn_base <- as.data.frame(res_base)
+max(tapply(syn_base$sex, syn_base$id, function(s) length(unique(s))))
+res_base$privacy   # one fewer transition histogram than the release above
+```
+
+The remaining honest limitation is that transitions are per-variable:
+cross-variable coupling is carried at `t = 1` by the initial-state tree, not
+re-measured at each later step.
 
 ## Linked multi-table releases
 
@@ -399,8 +424,9 @@ conditions on its own past, not the parent.
   table** are mutually exclusive — a child is modelled one way or the other.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
-- Publicly-declared baseline columns (held exactly constant within a person
-  under the DP Markov model) are not yet supported.
+- `baseline` (columns held exactly constant within a person) applies to a flat
+  longitudinal `synth()` release; holding a longitudinally-modelled *linked* child
+  table's columns constant is not yet supported.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

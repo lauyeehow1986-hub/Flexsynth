@@ -163,6 +163,9 @@ print.dp_accounting <- function(x, ...) {
     cat("  histograms:", x$n_marginals,
         paste0("(1 length + ", lg$n_init_marg, " initial + ",
                lg$n_transitions, " transition, composed budget)\n"))
+    if (!is.null(lg$baseline) && length(lg$baseline))
+      cat("  baseline  : held constant within unit:",
+          paste(lg$baseline, collapse = ", "), "\n")
   }
   cat("  noise     :",
       if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",

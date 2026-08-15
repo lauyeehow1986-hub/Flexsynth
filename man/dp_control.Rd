@@ -14,6 +14,7 @@ dp_control(
   structure_frac = NULL,
   cross_table = FALSE,
   longitudinal = FALSE,
+  baseline = NULL,
   bins = 12L,
   bounds = NULL,
   domain = c("dp", "public", "data"),
@@ -99,6 +100,20 @@ not the parent); if both name it, \code{longitudinal} wins for that table. \code
 (default) treats child rows as exchangeable. Ignored by flat / longitudinal
 \code{synth()} releases (which pick the DP Markov engine straight from the
 \code{structure} formula).}
+
+\item{baseline}{Longitudinal \code{synth()} only (a \code{structure} with a nesting
+index). Names of \strong{subject-invariant} columns — baseline covariates that do
+not change across a person's rows (e.g. birth sex, a baseline measurement).
+These are held \strong{exactly constant} within each synthetic unit: they are
+modelled once in the initial-state model (so their joint distribution and
+their correlation with the first visit are preserved) and then broadcast to
+every row, rather than being stepped through a transition matrix that would
+let them drift. Declaring a column baseline is public schema knowledge, so it
+costs no budget; it also \strong{removes} that column's transition histogram from
+the release, sharpening every remaining measurement at the same
+(\eqn{\epsilon}, \eqn{\delta}). \code{NULL} (default) treats every column as
+time-varying. Names that match no modelled column are ignored. Ignored by a
+flat \code{synth()} release (one row per unit) and by linked releases.}
 
 \item{bins}{Number of equal-width bins used to discretise each numeric
 variable (default 12). Finer grids sharpen one-way marginals but make the

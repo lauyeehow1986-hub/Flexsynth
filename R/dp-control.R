@@ -111,6 +111,19 @@
 #'   (default) treats child rows as exchangeable. Ignored by flat / longitudinal
 #'   `synth()` releases (which pick the DP Markov engine straight from the
 #'   `structure` formula).
+#' @param baseline Longitudinal `synth()` only (a `structure` with a nesting
+#'   index). Names of **subject-invariant** columns — baseline covariates that do
+#'   not change across a person's rows (e.g. birth sex, a baseline measurement).
+#'   These are held **exactly constant** within each synthetic unit: they are
+#'   modelled once in the initial-state model (so their joint distribution and
+#'   their correlation with the first visit are preserved) and then broadcast to
+#'   every row, rather than being stepped through a transition matrix that would
+#'   let them drift. Declaring a column baseline is public schema knowledge, so it
+#'   costs no budget; it also **removes** that column's transition histogram from
+#'   the release, sharpening every remaining measurement at the same
+#'   (\eqn{\epsilon}, \eqn{\delta}). `NULL` (default) treats every column as
+#'   time-varying. Names that match no modelled column are ignored. Ignored by a
+#'   flat `synth()` release (one row per unit) and by linked releases.
 #' @param bins Number of equal-width bins used to discretise each numeric
 #'   variable (default 12). Finer grids sharpen one-way marginals but make the
 #'   noisy two-way marginals used by `dependence = "tree"` weaker per cell, so a
@@ -145,6 +158,7 @@ dp_control <- function(epsilon,
                        structure_frac = NULL,
                        cross_table = FALSE,
                        longitudinal = FALSE,
+                       baseline = NULL,
                        bins = 12L,
                        bounds = NULL,
                        domain = c("dp", "public", "data"),
@@ -207,6 +221,13 @@ dp_control <- function(epsilon,
     stop(paste0("`longitudinal` must be a single TRUE/FALSE, or a character ",
                 "vector of child-table names (for linked DP)."), call. = FALSE)
   }
+  if (!is.null(baseline)) {
+    if (!is.character(baseline) || anyNA(baseline) || !all(nzchar(baseline))) {
+      stop(paste0("`baseline` must be NULL or a character vector of column ",
+                  "names (no NA, no empty strings)."), call. = FALSE)
+    }
+    baseline <- unique(baseline)
+  }
   if (!is.numeric(bins) || length(bins) != 1L || is.na(bins) || bins < 2 ||
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
@@ -240,6 +261,7 @@ dp_control <- function(epsilon,
       structure_frac = structure_frac,          # NULL or number in (0, 1)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
+      baseline = baseline,                        # NULL or character column names
       bins = as.integer(bins),
       bounds = bounds,
       domain = domain,
@@ -267,6 +289,9 @@ print.dp_control <- function(x, ...) {
   else if (is.character(x$longitudinal))
     cat("  longitudinal: DP Markov over child rows of",
         paste(x$longitudinal, collapse = ", "), "(linked DP)\n")
+  if (!is.null(x$baseline))
+    cat("  baseline  : held constant within unit:",
+        paste(x$baseline, collapse = ", "), "\n")
   cat("  bins      :", x$bins, "\n")
   cat("  domain    :", x$domain,
       if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),

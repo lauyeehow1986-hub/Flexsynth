@@ -72,9 +72,14 @@ dp_draw_lengths <- function(Lprob, n_persons, k) {
 # from `init_model`; every later row steps each variable through its transition
 # matrix `tran[[vi]]` conditioned on the same unit's previous-position code. Used
 # by both the flat DP longitudinal engine and a longitudinally-modelled linked
-# child table. `vars` fixes the column order (and matches `tran`'s order).
-dp_markov_codes <- function(init_model, tran, ppos, vars) {
+# child table. `vars` fixes the column order. `tran` is looked up by variable
+# name, so it may hold only the time-varying variables. `held` is a logical
+# vector over `vars` (default all FALSE): a held (subject-invariant / baseline)
+# variable is drawn once in the initial row and then carried forward unchanged, so
+# it stays exactly constant within the unit instead of stepping a transition.
+dp_markov_codes <- function(init_model, tran, ppos, vars, held = NULL) {
   nV <- length(vars)
+  if (is.null(held)) held <- logical(nV)
   N  <- length(ppos)
   cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
   if (!N) return(cmat)
@@ -86,7 +91,11 @@ dp_markov_codes <- function(init_model, tran, ppos, vars) {
     if (!length(rows_t)) next
     prv <- rows_t - 1L                        # previous position, same unit
     for (vi in seq_len(nV)) {
-      condv <- tran[[vi]]
+      if (held[vi]) {                         # baseline: carry the value forward
+        cmat[rows_t, vi] <- cmat[prv, vi]
+        next
+      }
+      condv <- tran[[vars[vi]]]
       pv <- cmat[prv, vi]
       child <- integer(length(rows_t))
       for (a in unique(pv)) {
@@ -166,15 +175,25 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
       paste(missing_bound, collapse = ", ")), call. = FALSE)
   }
 
-  # Release composition: 1 length histogram, the initial-state marginals, and one
-  # transition matrix per variable. Sensitivities differ (transitions scale with
-  # cap - 1), so we hand the exact totals to the shared calibrator.
+  # Declared baseline (subject-invariant) columns are modelled once in the
+  # initial state and then held constant within a unit, so they contribute NO
+  # transition histogram. Only the time-varying variables get transitions.
+  held_flag <- vars %in% dp$baseline
+  held_vars <- vars[held_flag]
+  tv_vars   <- vars[!held_flag]
+  nT        <- length(tv_vars)                 # number of transition matrices
+
+  # Release composition: 1 length histogram, the initial-state marginals (over
+  # ALL variables, baseline included, so baseline correlations are kept), and one
+  # transition matrix per time-varying variable. Sensitivities differ
+  # (transitions scale with cap - 1), so we hand the exact totals to the shared
+  # calibrator.
   nV <- length(vars)
   tree <- dp$dependence == "tree" && nV > 1L
   n_init_marg <- nV + if (tree) nV * (nV - 1L) / 2L else 0L
   capf <- as.numeric(cap)
-  total_l1 <- 1 + n_init_marg + nV * (capf - 1)
-  sum_sq   <- 1 + n_init_marg + nV * (capf - 1)^2
+  total_l1 <- 1 + n_init_marg + nT * (capf - 1)
+  sum_sq   <- 1 + n_init_marg + nT * (capf - 1)^2
 
   # Under domain = "dp", privately estimate numeric bin edges (an accounted
   # `domain_frac` slice); the remaining budget pays for the histograms above.
@@ -220,19 +239,23 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
                                 vars)
   init_model <- dp_fit_model(init_codes, nbins, dp, calib)
 
-  # Transition matrices over consecutive within-person pairs.
-  if (length(cur_rows)) {
-    prev_codes <- stats::setNames(lapply(vars, function(v) codes[[v]][prev_rows]),
-                                  vars)
-    cur_codes  <- stats::setNames(lapply(vars, function(v) codes[[v]][cur_rows]),
-                                  vars)
-    tran <- dp_fit_transitions(prev_codes, cur_codes, nbins, calib$add_noise)
+  # Transition matrices over consecutive within-person pairs, for the
+  # time-varying variables only (baseline columns are held constant, so they need
+  # no transition and drew no budget above).
+  if (nT && length(cur_rows)) {
+    prev_codes <- stats::setNames(
+      lapply(tv_vars, function(v) codes[[v]][prev_rows]), tv_vars)
+    cur_codes  <- stats::setNames(
+      lapply(tv_vars, function(v) codes[[v]][cur_rows]), tv_vars)
+    tran <- dp_fit_transitions(prev_codes, cur_codes, nbins[tv_vars],
+                               calib$add_noise)
   } else {
-    # No repeated visits survived: transitions are unidentified but also unused
-    # (every drawn length collapses to 1). Fall back to an identity-ish uniform.
+    # No repeated visits survived (or nothing is time-varying): transitions are
+    # unidentified but also unused. Fall back to an identity-ish uniform over the
+    # time-varying variables.
     tran <- stats::setNames(
-      lapply(vars, function(v) matrix(1 / nbins[[v]], nbins[[v]], nbins[[v]])),
-      vars)
+      lapply(tv_vars, function(v) matrix(1 / nbins[[v]], nbins[[v]], nbins[[v]])),
+      tv_vars)
   }
 
   n_persons_est <- max(1L, round(sum(Lnoisy)))
@@ -243,9 +266,16 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
     person <- rep(seq_len(np), lens)
     ppos <- sequence(lens)                    # 1..len within each person
 
-    cmat <- dp_markov_codes(init_model, tran, ppos, vars)
+    cmat <- dp_markov_codes(init_model, tran, ppos, vars, held_flag)
 
     out <- dp_decode_frame(cmat, dom)
+    # Held codes are equal within a unit, but numeric decoding draws a fresh
+    # within-bin value per row; broadcast each unit's first-row decoded value so a
+    # baseline column is byte-for-byte constant within the unit.
+    if (length(held_vars)) {
+      first_idx <- match(person, person)       # first row index of each unit
+      for (v in held_vars) out[[v]] <- out[[v]][first_idx]
+    }
     out[[id]] <- person
     for (nk in st$nested) out[[nk]] <- dp_index_as_position(data[[nk]], ppos)
     out[names(data)]
@@ -254,9 +284,10 @@ synth_dp_longitudinal <- function(data, st, structure, dp, tuning, m, seed) {
   syns <- lapply(seq_len(m), function(i) make_one())
   syn <- if (m == 1L) syns[[1L]] else syns
 
-  n_hist <- 1L + as.integer(n_init_marg) + nV
+  n_hist <- 1L + as.integer(n_init_marg) + nT
   longitudinal <- list(n_init_marg = as.integer(n_init_marg),
-                       n_transitions = nV, length_bins = as.integer(cap))
+                       n_transitions = nT, length_bins = as.integer(cap),
+                       baseline = held_vars)
   acct <- new_dp_accounting(dp, calib, cap, n_hist, vars, bounded$dropped,
                             domain_info, longitudinal = longitudinal)
   new_synth_result(

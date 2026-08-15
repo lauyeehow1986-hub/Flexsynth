@@ -162,14 +162,23 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\rho} adds — alongside the domain-estimation slice. `structure_frac = NULL`
   (default) keeps the single-pass fitter; inert for `dependence = "independent"`,
   `d < 3`, and longitudinal / linked releases.
+- [x] **Baseline columns held exactly constant** (`dp_control(baseline = c(...))`,
+  longitudinal `synth()` release). Publicly-declared subject-invariant columns are
+  modelled once in the initial-state model (keeping their joint distribution and
+  their correlation with the first visit) and then broadcast unchanged to every row
+  of a synthetic unit, instead of being stepped through a transition matrix that
+  would let a baseline covariate drift across visits. A baseline column carries no
+  transition histogram, so declaring it also *removes* that histogram from the
+  release — the remaining measurements are sharper at the same exact
+  (\eqn{\epsilon}, \eqn{\delta}). Declaring is public schema knowledge (no budget);
+  `baseline = NULL` (default) treats every column as time-varying.
 - Future: PrivBayes
   greedy degree>1 networks and AIM-style adaptive marginal selection;
-  publicly-declared baseline columns held exactly constant within a person under
-  the DP Markov model (currently every non-index column is time-varying);
   higher-order / cross-variable DP transitions; combining cross-table conditioning
   *and* longitudinal transitions on the same child table (currently mutually
-  exclusive per table). (Data-independent / DP-estimated bin edges are done; see
-  the post-Phase-8 item below.)
+  exclusive per table); extending `baseline` to a longitudinally-modelled linked
+  child table (currently flat `synth()` only). (Data-independent / DP-estimated bin
+  edges are done; see the post-Phase-8 item below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

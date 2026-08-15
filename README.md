@@ -131,7 +131,12 @@ variables on the synthetic parent's attributes (measured parent-by-child joints,
 composed into the same budget), so cross-table dependence survives — not just the
 key link; and `dp_control(longitudinal = TRUE)` models a child table's repeated
 rows as a within-unit DP Markov trajectory (initial-state + per-variable
-transitions), so within-unit autocorrelation across visits survives too. For a
+transitions), so within-unit autocorrelation across visits survives too. In a
+longitudinal `synth()` release, `dp_control(baseline = c(...))` names
+subject-invariant columns (e.g. birth sex, a baseline measurement): they are
+modelled once in the initial state and held **exactly constant** across a
+person's visits instead of drifting through a transition matrix — which also
+drops their transition histograms, sharpening the rest at the same budget. For a
 flat tree release, `dp_control(structure_frac = f)` learns the Chow-Liu structure
 from a cheap all-pairs scan (a fraction `f` of the budget) and concentrates the
 rest on re-measuring only the chosen edges — sharper conditionals at the same
