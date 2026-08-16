@@ -110,7 +110,7 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
                                             eps_per_query = NA_real_, frac = 0),
                               longitudinal = NULL, linked = NULL, learn = NULL,
-                              adaptive = NULL, bayes = NULL) {
+                              adaptive = NULL, bayes = NULL, estimator = "local") {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -129,7 +129,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       linked = linked,
       learn = learn,
       adaptive = adaptive,
-      bayes = bayes
+      bayes = bayes,
+      estimator = estimator
     ),
     class = "dp_accounting"
   )
@@ -245,6 +246,11 @@ print.dp_accounting <- function(x, ...) {
     cat("  selection : GreedyBayes,", signif(by$select_frac, 3),
         "of budget over", by$n_select, "exponential-mechanism round(s);",
         "per-round eps", signif(by$select_eps, 4), "\n")
+  }
+  if (identical(x$estimator, "pgm")) {
+    cat("  estimator : Private-PGM reconciliation of the measured marginals\n")
+    cat("              (belief propagation + mirror descent; post-processing,",
+        "no extra budget)\n")
   }
   if (!is.null(x$linked)) {
     for (ti in x$linked$tables) {

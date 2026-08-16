@@ -96,7 +96,8 @@ dp_decode_combo <- function(idx, dims) {
 # `sel_eps` is the per-round exponential-mechanism epsilon; `w` is the treewidth
 # (clique size - 1, already capped to d - 1); `cap` is the per-person row cap (the
 # selection score's sensitivity). Returns a model with kind = "junction".
-dp_fit_model_adaptive <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
+dp_fit_model_adaptive <- function(codes, nbins, dp, calib, w, sel_eps, cap,
+                                  reconcile = FALSE) {
   d <- length(codes)
   vars <- names(codes)
   idx_all <- seq_len(d)
@@ -197,8 +198,27 @@ dp_fit_model_adaptive <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
     covered[v] <- TRUE
   }
 
-  list(kind = "junction", vars = vars, nbins = nbins, cliques = cliques,
-       marginals = p1, n_est = n_est, treewidth = w)
+  model <- list(kind = "junction", vars = vars, nbins = nbins, cliques = cliques,
+                marginals = p1, n_est = n_est, treewidth = w)
+
+  # Private-PGM reconciliation (optional): instead of each clique's own noisy
+  # array giving its conditional locally, reconcile the whole measured set (the d
+  # one-way counts plus every clique array) into one consistent graphical model
+  # over the same junction tree, then read the reconciled marginals back into the
+  # clique conditionals. Pure post-processing of the already-noised marginals, so
+  # no extra budget is spent (see dp-pgm.R).
+  if (isTRUE(reconcile)) {
+    meas <- c(
+      lapply(idx_all, function(i) list(vars = i, y = c1[[i]])),
+      lapply(seq_along(cliques),
+             function(ci) list(vars = cliques[[ci]]$vars,
+                               y = as.vector(arrays[[ci]])))
+    )
+    rec <- dp_pgm_reconcile(cliques, meas, nbins, vars, n_est)
+    model$cliques <- rec$cliques
+    model$estimator <- "pgm"
+  }
+  model
 }
 
 # Fit a degree-k Bayesian network (PrivBayes' GreedyBayes) over the discrete

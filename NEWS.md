@@ -1,5 +1,25 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: Private-PGM inference step.** `dp_control(estimator = "pgm")` adds the
+  reconciliation the other (PGM-free) Track B samplers deliberately omit. Instead
+  of using each measured marginal *locally* (the tree takes each edge's raw noisy
+  2-way as \eqn{P(\text{child} \mid \text{parent})} and discards both the other
+  one-way marginals and the disagreement between overlapping noisy marginals), it
+  reconciles the *whole* measured set into the single graphical-model distribution
+  that best fits all of it at once (least squares) — following McKenna et al.'s
+  Private-PGM / MST — by belief propagation on a junction tree of the measured
+  cliques plus **entropic mirror descent**, then samples from that. A tree (or the
+  adaptive junction tree) has bounded treewidth, so the inference is exact and
+  cheap. Reconciliation is **pure post-processing** of the already-privatised
+  marginals, so it spends **no extra budget**: the (\eqn{\epsilon}, \eqn{\delta})
+  is identical to the same release with `"local"`; only the fitted model changes.
+  It denoises (overlapping marginals are made mutually consistent) and lets the
+  otherwise-discarded one-way marginals constrain the model. Available for the flat
+  `dependence = "tree"` release (degree-1) and for `select = "adaptive"`; an
+  **alternative** to `structure_frac`, `degree > 1` and `anneal = TRUE`; refused on
+  longitudinal / linked releases. `"local"` (default) leaves every existing path
+  byte-identical.
+
 * **Track B: PrivBayes degree>1 Bayesian networks.** `dp_control(dependence =
   "tree", degree = k)` generalises the Chow-Liu tree (a degree-1 Bayesian
   network) to **GreedyBayes**: a degree-`k` network in which each variable may

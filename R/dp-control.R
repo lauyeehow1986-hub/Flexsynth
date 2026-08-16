@@ -156,6 +156,32 @@
 #'   modest slice usually gives the best fidelity (the same intuition as
 #'   `structure_frac`); both slices compose into the same exact
 #'   (\eqn{\epsilon}, \eqn{\delta}). Ignored unless `select = "adaptive"`.
+#' @param estimator How the measured marginals are turned into the generative
+#'   model, for a flat [synth()] tree or adaptive release. `"local"` (default)
+#'   is every existing path unchanged: each marginal is used **locally** — the
+#'   tree takes the root's one-way and each edge's raw noisy 2-way as
+#'   \eqn{P(\text{child} \mid \text{parent})}, the adaptive junction tree each
+#'   clique's own array — so the other one-way marginals, and the disagreement
+#'   between overlapping noisy marginals, are discarded. `"pgm"` opts into
+#'   **Private-PGM inference** (McKenna et al.'s MST / graphical-model
+#'   estimation): the *whole* set of measured marginals is reconciled into the
+#'   single graphical-model distribution that best fits all of them at once (least
+#'   squares), by belief propagation on a junction tree of the measured cliques
+#'   plus entropic mirror descent, and the model is sampled from that. Because a
+#'   tree (or the adaptive junction tree) has bounded treewidth, the inference is
+#'   exact and cheap. Reconciliation is **pure post-processing** of the
+#'   already-privatised marginals, so it spends **no extra budget** — the
+#'   (\eqn{\epsilon}, \eqn{\delta}) is identical to the same release with
+#'   `"local"`; only the fitted model changes. It denoises (overlapping marginals
+#'   are made mutually consistent) and lets the otherwise-discarded one-way
+#'   marginals actually constrain the model, usually sharpening both the marginals
+#'   and the conditionals at the same budget. Available for the flat
+#'   `dependence = "tree"` release (degree-1) and for `select = "adaptive"`; it is
+#'   an **alternative** to `structure_frac`, to `degree > 1`, and to
+#'   `anneal = TRUE` (setting any of those alongside `estimator = "pgm"` is an
+#'   error), and there is nothing to reconcile in `dependence = "independent"`.
+#'   Refused on longitudinal / linked releases (flat-table only). Ignored (no-op)
+#'   for `"local"`.
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -298,6 +324,7 @@ dp_control <- function(epsilon,
                        treewidth = 1L,
                        select_frac = 0.25,
                        anneal = FALSE,
+                       estimator = c("local", "pgm"),
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        baseline = NULL,
@@ -312,6 +339,7 @@ dp_control <- function(epsilon,
   mechanism <- match.arg(mechanism)
   dependence <- match.arg(dependence)
   select <- match.arg(select)
+  estimator <- match.arg(estimator)
   domain <- match.arg(domain)
 
   if (missing(epsilon) || !is.numeric(epsilon) || length(epsilon) != 1L ||
@@ -400,6 +428,34 @@ dp_control <- function(epsilon,
       stop(paste0("`structure_frac` applies to the fixed tree fitter; adaptive ",
                   "selection uses `select_frac` (and `treewidth`) instead - set ",
                   "structure_frac = NULL."), call. = FALSE)
+    }
+  }
+  # Private-PGM reconciliation is a post-processing estimator that reconciles the
+  # measured marginals of a tree or an adaptive junction tree into one consistent
+  # model. It is an alternative to the tree's other structure knobs and to the
+  # annealed refiner, and is defined for a degree-1 tree (not a Bayesian network).
+  if (estimator == "pgm") {
+    if (isTRUE(anneal)) {
+      stop(paste0("`estimator = \"pgm\"` and `anneal = TRUE` are alternative ",
+                  "post-measurement refiners (PGM reconciles the measured ",
+                  "marginals; annealing re-measures the worst-fit clique); pick ",
+                  "one."), call. = FALSE)
+    }
+    if (degree > 1L) {
+      stop(paste0("`estimator = \"pgm\"` reconciles a Chow-Liu tree (degree 1); ",
+                  "the Bayesian-network `degree` > 1 is a different structure. ",
+                  "Set degree = 1."), call. = FALSE)
+    }
+    if (!is.null(structure_frac)) {
+      stop(paste0("`estimator = \"pgm\"` and `structure_frac` both restructure ",
+                  "the tree release; they are not (yet) combined. Set ",
+                  "structure_frac = NULL."), call. = FALSE)
+    }
+    if (select != "adaptive" && dependence != "tree") {
+      stop(paste0("`estimator = \"pgm\"` reconciles a tree or an adaptive ",
+                  "junction tree; it needs `dependence = \"tree\"` or ",
+                  "`select = \"adaptive\"` (there is nothing to reconcile in the ",
+                  "independent model)."), call. = FALSE)
     }
   }
   if (!is.logical(cross_table) || length(cross_table) != 1L ||
@@ -502,6 +558,7 @@ dp_control <- function(epsilon,
       treewidth = treewidth,                    # integer >= 1 (adaptive only)
       select_frac = select_frac,                # number in (0, 1) (adaptive only)
       anneal = anneal,                          # logical (adaptive only)
+      estimator = estimator,                    # "local" or "pgm" (reconcile)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
       baseline = baseline,                        # NULL or character column names
@@ -536,6 +593,9 @@ print.dp_control <- function(x, ...) {
         if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
         else " (", signif(x$select_frac, 3), " of budget selects marginals)\n",
         sep = "")
+  if (identical(x$estimator, "pgm"))
+    cat("  estimator : Private-PGM reconciliation",
+        "(belief propagation + mirror descent; budget-neutral)\n")
   if (isTRUE(x$cross_table))
     cat("  cross-table: parent-conditioned child vars (linked DP)\n")
   if (isTRUE(x$longitudinal))

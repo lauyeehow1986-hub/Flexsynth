@@ -142,6 +142,49 @@ dp_fit_model <- function(codes, nbins, dp, calib, calib_struct = NULL) {
        marginals = lapply(c1, dp_normalise), n_est = n_est, pairwise_mi = W)
 }
 
+# Fit a flat tree release with Private-PGM reconciliation (MST). Measures the
+# same marginals as the local single-pass tree fitter -- the d one-way counts and
+# all C(d, 2) pairwise joints under `calib`, the pairs giving the Chow-Liu MST
+# weights -- so the (eps, delta) is identical. It then keeps the chosen tree's
+# d - 1 edges (as a treewidth-1 junction tree, root = node 1) plus the one-ways
+# and reconciles that set into one consistent distribution (dp_pgm_reconcile),
+# rather than using each edge's raw noisy 2-way locally. Returns a junction-kind
+# model so the existing junction sampler draws it unchanged.
+dp_fit_model_pgm <- function(codes, nbins, dp, calib) {
+  d <- length(codes)
+  vars <- names(codes)
+  c1 <- lapply(seq_len(d), function(i)
+    pmax(calib$add_noise(tabulate(codes[[i]], nbins[i])), 0))
+  names(c1) <- vars
+  n_est <- max(1, round(mean(vapply(c1, sum, numeric(1)))))
+
+  joints <- matrix(list(), d, d)
+  W <- matrix(0, d, d)
+  for (i in seq_len(d - 1L)) for (j in (i + 1L):d) {
+    tab <- dp_joint_counts(codes[[i]], codes[[j]], nbins[i], nbins[j])
+    noisy <- pmax(matrix(calib$add_noise(as.vector(tab)),
+                         nbins[i], nbins[j]), 0)
+    joints[[i, j]] <- noisy
+    W[i, j] <- W[j, i] <- dp_mutual_information(noisy)
+  }
+  edges <- dp_max_spanning_tree(W)                 # directed (parent, child)
+
+  cliques <- vector("list", d)
+  cliques[[1L]] <- list(vars = 1L, sep = integer(0), new = 1L)
+  meas <- lapply(seq_len(d), function(i) list(vars = i, y = c1[[i]]))
+  for (k in seq_along(edges)) {
+    e <- edges[[k]]; p <- e[1L]; ch <- e[2L]
+    cliques[[k + 1L]] <- list(vars = sort(c(p, ch)), sep = p, new = ch)
+    # The stored joint has the smaller variable index as rows (fastest), which is
+    # exactly the sorted-variable cell order dp_pgm_reconcile() expects.
+    J <- joints[[min(p, ch), max(p, ch)]]
+    meas[[length(meas) + 1L]] <- list(vars = sort(c(p, ch)), y = as.vector(J))
+  }
+  rec <- dp_pgm_reconcile(cliques, meas, nbins, vars, n_est)
+  list(kind = "junction", vars = vars, nbins = nbins, cliques = rec$cliques,
+       marginals = lapply(c1, dp_normalise), n_est = n_est, estimator = "pgm")
+}
+
 # Draw one synthetic dataset of `n` rows (matrix of cell codes, n x d).
 dp_sample_codes <- function(model, n) {
   if (model$kind %in% c("junction", "bayes")) return(dp_sample_codes_junction(model, n))
@@ -189,6 +232,12 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     stop(paste0("degree > 1 (a Bayesian network) is currently flat-table only; ",
                 "this structure is longitudinal. Use degree = 1 for a ",
                 "longitudinal DP release."), call. = FALSE)
+  }
+  if (identical(dp$estimator, "pgm") && length(st$nested) > 0L) {
+    stop(paste0("estimator = \"pgm\" (Private-PGM reconciliation) is currently ",
+                "flat-table only; this structure is longitudinal. Use the ",
+                "default estimator = \"local\" for a longitudinal DP release."),
+         call. = FALSE)
   }
   if (length(st$nested) > 0L) {
     return(synth_dp_longitudinal(data, st, structure, dp, tuning, m, seed))
@@ -247,6 +296,11 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   # for < 3 variables, so it is inert there (and for the independent model).
   use_learn <- !adaptive && !bayes && !is.null(dp$structure_frac) &&
     dp$dependence == "tree" && d >= 3L
+  # Private-PGM reconciliation (MST) of the flat tree's measured marginals. Same
+  # measured set (d one-ways + all pairs) and budget as the local tree, so it is
+  # a drop-in for the plain tree fitter; only the model built from them changes.
+  pgm <- identical(dp$estimator, "pgm")
+  pgm_tree <- pgm && !adaptive && !bayes && dp$dependence == "tree" && d >= 2L
   # A degree-k network measures d one-ways + (d - 1) family joints = 2d - 1.
   n_marginals <- if (adaptive) d + n_cliques
     else if (bayes) 2L * d - 1L
@@ -354,10 +408,12 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
       fit$model
     } else {
       dp_fit_model_adaptive(codes, nbins, dp, calib, w_eff,
-                            adapt_info$select_eps, cap)
+                            adapt_info$select_eps, cap, reconcile = pgm)
     }
   } else if (bayes) {
     dp_fit_model_bayes(codes, nbins, dp, calib, dp$degree, sel_eps_bayes, cap)
+  } else if (pgm_tree) {
+    dp_fit_model_pgm(codes, nbins, dp, calib)
   } else dp_fit_model(codes, nbins, dp, calib, calib_struct)
   # The annealed path measures a data-adaptive number of histograms (d one-ways +
   # the realised clique rounds); report that actual count.
@@ -376,7 +432,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
 
   acct <- new_dp_accounting(dp, calib, cap, n_marg_report, vars, bounded$dropped,
                             domain_info, learn = learn_info, adaptive = adapt_info,
-                            bayes = bayes_info)
+                            bayes = bayes_info,
+                            estimator = if (pgm) "pgm" else "local")
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),

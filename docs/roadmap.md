@@ -260,9 +260,28 @@ engine; Track B is the opt-in differentially private engine.
       (no PGM inference); `degree` capped to `d - 1`; alternative to
       `structure_frac` / `select = "adaptive"`; refused on longitudinal / linked
       releases. `degree = 1` (default) leaves the tree path byte-identical.
-- Future: to spend budget on *loopy* marginals (whether from adaptive refinement or
-  a denser Bayesian network) rather than only re-measuring existing cliques, a
-  Private-PGM inference step — the piece these PGM-free samplers deliberately omit.
+- [x] **Private-PGM inference step** (`dp_control(estimator = "pgm")`, flat
+      `synth()` tree or adaptive release). Every other Track B sampler is PGM-free:
+      it uses each measured marginal *locally* (the tree takes each edge's raw noisy
+      2-way as `P(child | parent)`) and discards both the other one-way marginals and
+      the disagreement between overlapping noisy marginals. `estimator = "pgm"` adds
+      the reconciliation they omit, following McKenna et al.'s Private-PGM / MST:
+      the whole measured set is reconciled into the single graphical-model
+      distribution that best fits all of it at once (least squares), by belief
+      propagation on a junction tree of the measured cliques plus **entropic mirror
+      descent**, then sampled. A tree / adaptive junction tree has bounded treewidth,
+      so inference is exact and cheap. Reconciliation is **pure post-processing** of
+      the already-privatised marginals — no extra budget, the (\eqn{\epsilon},
+      \eqn{\delta}) is identical to the same release with `"local"` — that denoises
+      overlapping marginals into mutual consistency and lets the otherwise-discarded
+      one-ways constrain the model. Available for `dependence = "tree"` (degree-1)
+      and `select = "adaptive"`; an **alternative** to `structure_frac`, `degree > 1`
+      and `anneal = TRUE`; refused on longitudinal / linked releases. `"local"`
+      (default) leaves every existing path byte-identical.
+- Future: adaptive selection *without* the running-intersection constraint (loopy
+  marginal sets, general triangulation) so PGM can hold interactions no bounded
+  junction tree can — full AIM; DP set-union for `character` category discovery
+  under `domain = "dp"`; and tagging a stable 0.1.0 for CRAN.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

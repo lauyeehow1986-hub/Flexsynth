@@ -276,6 +276,35 @@ alongside `degree > 1` is an error). Raising `degree` makes each family a
 `(degree + 1)`-way histogram, so the same cell-count caution as a high `treewidth`
 applies.
 
+**Private-PGM inference (`estimator = "pgm"`).** Every model above is *PGM-free*:
+it uses each measured marginal **locally** — the tree takes the root's one-way and
+each edge's raw noisy 2-way as \(P(\text{child}\mid\text{parent})\), the adaptive
+junction tree each clique's own array — so the other one-way marginals, and the
+fact that overlapping noisy marginals disagree (each measured independently under
+noise), are thrown away. `dp_control(estimator = "pgm")` adds the reconciliation
+they omit, following McKenna et al.'s Private-PGM / MST: the *whole* measured set is
+reconciled into the single graphical-model distribution that best fits all of it at
+once (least squares), by belief propagation on a junction tree of the measured
+cliques plus entropic mirror descent, and the model is sampled from that. Because a
+tree (or the adaptive junction tree) has bounded treewidth, the inference is exact
+and cheap.
+
+```{r pgm}
+dp_pgm <- dp_control(epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+                     dependence = "tree", estimator = "pgm",
+                     bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_pgm, seed = 1)$privacy
+```
+
+Crucially, reconciliation is **pure post-processing** of the already-privatised
+marginals, so it spends **no extra budget** — the \((\epsilon, \delta)\) is
+identical to the same release with the default `estimator = "local"`; only the
+fitted model changes. It denoises (overlapping marginals are made mutually
+consistent) and lets the otherwise-discarded one-way marginals constrain the model,
+usually sharpening both the marginals and the conditionals at the same budget. It is
+available for the flat `dependence = "tree"` release and for `select = "adaptive"`,
+and is an alternative to `structure_frac`, to `degree > 1`, and to `anneal = TRUE`.
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

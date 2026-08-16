@@ -180,8 +180,18 @@ by the exponential mechanism. Because a tree gives a variable one parent, it
 cannot represent a variable that depends on two otherwise-unrelated predecessors (a
 v-structure, e.g. `C` a noisy XOR of independent `A` and `B`); a degree-2 network
 takes both parents and recovers it — all composing to the same exact (ε, δ), and
-still forward-sampled with no PGM inference. See `vignette("differential-privacy")`
-for scope and the honest utility trade-off.
+still forward-sampled with no PGM inference. Finally,
+`dp_control(estimator = "pgm")` adds the **Private-PGM inference step** the
+PGM-free samplers omit: instead of using each measured marginal locally (each tree
+edge as its own `P(child | parent)`), it reconciles the *whole* measured set — one-
+ways and edges together — into the single graphical-model distribution that best
+fits all of it at once, by belief propagation on the junction tree plus entropic
+mirror descent (McKenna et al.'s MST). Reconciliation is pure post-processing of the
+already-noised marginals, so it costs **no extra budget** — the (ε, δ) is identical
+to the `"local"` release — yet it denoises overlapping marginals into mutual
+consistency and lets the otherwise-discarded one-ways constrain the model. It works
+for the flat tree and for `select = "adaptive"`. See
+`vignette("differential-privacy")` for scope and the honest utility trade-off.
 
 ## Learn more
 

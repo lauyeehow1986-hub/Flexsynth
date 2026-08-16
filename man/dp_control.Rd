@@ -17,6 +17,7 @@ dp_control(
   treewidth = 1L,
   select_frac = 0.25,
   anneal = FALSE,
+  estimator = c("local", "pgm"),
   cross_table = FALSE,
   longitudinal = FALSE,
   baseline = NULL,
@@ -156,6 +157,33 @@ PGM inference), refinement can only sharpen the measured cliques, not add
 loopy marginals; it is most useful when there are few variables and the fixed
 schedule would otherwise leave budget on the table. Ignored unless
 \code{select = "adaptive"}; setting it without adaptive selection is an error.}
+
+\item{estimator}{How the measured marginals are turned into the generative
+model, for a flat \code{\link[=synth]{synth()}} tree or adaptive release. \code{"local"} (default)
+is every existing path unchanged: each marginal is used \strong{locally} — the
+tree takes the root's one-way and each edge's raw noisy 2-way as
+\eqn{P(\text{child} \mid \text{parent})}, the adaptive junction tree each
+clique's own array — so the other one-way marginals, and the disagreement
+between overlapping noisy marginals, are discarded. \code{"pgm"} opts into
+\strong{Private-PGM inference} (McKenna et al.'s MST / graphical-model
+estimation): the \emph{whole} set of measured marginals is reconciled into the
+single graphical-model distribution that best fits all of them at once (least
+squares), by belief propagation on a junction tree of the measured cliques
+plus entropic mirror descent, and the model is sampled from that. Because a
+tree (or the adaptive junction tree) has bounded treewidth, the inference is
+exact and cheap. Reconciliation is \strong{pure post-processing} of the
+already-privatised marginals, so it spends \strong{no extra budget} — the
+(\eqn{\epsilon}, \eqn{\delta}) is identical to the same release with
+\code{"local"}; only the fitted model changes. It denoises (overlapping marginals
+are made mutually consistent) and lets the otherwise-discarded one-way
+marginals actually constrain the model, usually sharpening both the marginals
+and the conditionals at the same budget. Available for the flat
+\code{dependence = "tree"} release (degree-1) and for \code{select = "adaptive"}; it is
+an \strong{alternative} to \code{structure_frac}, to \code{degree > 1}, and to
+\code{anneal = TRUE} (setting any of those alongside \code{estimator = "pgm"} is an
+error), and there is nothing to reconcile in \code{dependence = "independent"}.
+Refused on longitudinal / linked releases (flat-table only). Ignored (no-op)
+for \code{"local"}.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:
