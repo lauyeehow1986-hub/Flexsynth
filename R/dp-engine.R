@@ -187,6 +187,7 @@ dp_fit_model_pgm <- function(codes, nbins, dp, calib) {
 
 # Draw one synthetic dataset of `n` rows (matrix of cell codes, n x d).
 dp_sample_codes <- function(model, n) {
+  if (identical(model$kind, "pgm")) return(dp_sample_codes_pgm(model, n))
   if (model$kind %in% c("junction", "bayes")) return(dp_sample_codes_junction(model, n))
   d <- length(model$vars)
   out <- matrix(NA_integer_, n, d, dimnames = list(NULL, model$vars))
@@ -239,6 +240,11 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
                 "default estimator = \"local\" for a longitudinal DP release."),
          call. = FALSE)
   }
+  if (identical(dp$select, "aim") && length(st$nested) > 0L) {
+    stop(paste0("select = \"aim\" (Full AIM) is currently flat-table only; this ",
+                "structure is longitudinal. Use the default select = \"fixed\" ",
+                "for a longitudinal DP release."), call. = FALSE)
+  }
   if (length(st$nested) > 0L) {
     return(synth_dp_longitudinal(data, st, structure, dp, tuning, m, seed))
   }
@@ -283,26 +289,36 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   adaptive <- identical(dp$select, "adaptive") && d >= 2L
   w_eff <- if (adaptive) min(dp$treewidth, d - 1L) else NA_integer_
   n_cliques <- if (adaptive) d - w_eff else 0L
+  # Full AIM: measure d one-ways, then a fixed number of exponential-mechanism
+  # rounds over *loopy* pairwise marginals (bounded by the treewidth after
+  # triangulation), reconciled and sampled with Private-PGM (see dp-aim.R). The
+  # round count is data-independent: min(all pairs, treewidth * (d - 1)).
+  aim <- identical(dp$select, "aim") && d >= 2L
+  w_aim <- if (aim) min(dp$treewidth, d - 1L) else NA_integer_
+  n_rounds_aim <- if (aim)
+    as.integer(min(d * (d - 1L) / 2L, w_aim * (d - 1L))) else 0L
   # GreedyBayes: a degree-k Bayesian network (each node conditions on up to
   # `degree` already-generated predecessors, chosen by the exponential mechanism).
   # Generalises the Chow-Liu tree (degree 1); needs at least two variables and the
   # degree is capped to d - 1 (see dp-adaptive.R).
-  bayes <- !adaptive && dp$degree > 1L && dp$dependence == "tree" && d >= 2L
+  bayes <- !adaptive && !aim && dp$degree > 1L && dp$dependence == "tree" && d >= 2L
   deg_eff <- if (bayes) min(dp$degree, d - 1L) else NA_integer_
-  n_pairs <- if (!adaptive && !bayes && dp$dependence == "tree" && d > 1L)
+  n_pairs <- if (!adaptive && !aim && !bayes && dp$dependence == "tree" && d > 1L)
     d * (d - 1L) / 2L else 0L
   # Budget-efficient structure learning: a separate cheap pairwise scan selects
   # the tree, then only its d-1 edges (plus d one-ways) are re-measured. Trivial
   # for < 3 variables, so it is inert there (and for the independent model).
-  use_learn <- !adaptive && !bayes && !is.null(dp$structure_frac) &&
+  use_learn <- !adaptive && !aim && !bayes && !is.null(dp$structure_frac) &&
     dp$dependence == "tree" && d >= 3L
   # Private-PGM reconciliation (MST) of the flat tree's measured marginals. Same
   # measured set (d one-ways + all pairs) and budget as the local tree, so it is
   # a drop-in for the plain tree fitter; only the model built from them changes.
   pgm <- identical(dp$estimator, "pgm")
-  pgm_tree <- pgm && !adaptive && !bayes && dp$dependence == "tree" && d >= 2L
+  pgm_tree <- pgm && !adaptive && !aim && !bayes && dp$dependence == "tree" && d >= 2L
   # A degree-k network measures d one-ways + (d - 1) family joints = 2d - 1.
+  # Full AIM measures d one-ways + n_rounds_aim selected pairwise marginals.
   n_marginals <- if (adaptive) d + n_cliques
+    else if (aim) d + n_rounds_aim
     else if (bayes) 2L * d - 1L
     else if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
 
@@ -331,10 +347,26 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   learn_info <- NULL
   adapt_info <- NULL
   bayes_info <- NULL
+  aim_info <- NULL
   sel_eps_bayes <- NULL
+  sel_eps_aim <- NULL
   pool_meas <- NULL
   pool_sel <- NULL
-  if (adaptive) {
+  if (aim) {
+    # Full AIM: the marginal budget splits into a selection slice (the
+    # exponential-mechanism rounds over loopy pairs) and a measurement slice
+    # (the d one-ways + n_rounds_aim selected pairs); both compose exactly into
+    # the same (eps, delta) as the domain slice (zCDP rho adds; pure eps adds).
+    sf <- dp$select_frac
+    calib_struct <- NULL
+    calib <- dp_calibrate(dp, n_marginals, cap,
+                          budget_frac = marg_frac * (1 - sf))
+    sel_eps_aim <- dp_select_eps(dp, n_rounds_aim, marg_frac * sf)
+    aim_info <- list(treewidth = w_aim, n_rounds = n_rounds_aim,
+                     select_frac = sf, select_eps = sel_eps_aim,
+                     meas_noise = if (calib$mechanism == "laplace")
+                       calib$scale else calib$sigma)
+  } else if (adaptive) {
     # Marginal budget splits into a selection slice (the exponential-mechanism
     # rounds) and a measurement slice (the d one-ways + d - w cliques); both
     # compose exactly into the same (eps, delta) as the domain slice.
@@ -400,7 +432,9 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   codes <- stats::setNames(
     lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
 
-  model <- if (adaptive) {
+  model <- if (aim) {
+    dp_fit_model_aim(codes, nbins, dp, calib, w_aim, sel_eps_aim, cap)
+  } else if (adaptive) {
     if (isTRUE(dp$anneal)) {
       fit <- dp_fit_model_adaptive_anneal(codes, nbins, dp, w_eff, cap,
                                           pool_meas, pool_sel)
@@ -432,8 +466,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
 
   acct <- new_dp_accounting(dp, calib, cap, n_marg_report, vars, bounded$dropped,
                             domain_info, learn = learn_info, adaptive = adapt_info,
-                            bayes = bayes_info,
-                            estimator = if (pgm) "pgm" else "local")
+                            bayes = bayes_info, aim = aim_info,
+                            estimator = if (pgm && !aim) "pgm" else "local")
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),

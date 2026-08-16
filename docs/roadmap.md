@@ -278,10 +278,29 @@ engine; Track B is the opt-in differentially private engine.
       and `select = "adaptive"`; an **alternative** to `structure_frac`, `degree > 1`
       and `anneal = TRUE`; refused on longitudinal / linked releases. `"local"`
       (default) leaves every existing path byte-identical.
-- Future: adaptive selection *without* the running-intersection constraint (loopy
-  marginal sets, general triangulation) so PGM can hold interactions no bounded
-  junction tree can — full AIM; DP set-union for `character` category discovery
-  under `domain = "dp"`; and tagging a stable 0.1.0 for CRAN.
+- [x] **Full AIM** (`dp_control(select = "aim")`, flat `synth()` release). Lifts the
+      running-intersection constraint on the adaptive selector, so the exponential
+      mechanism may pick *loopy* marginals — a pair between two variables already in
+      the model, the cycle a junction-tree selector structurally cannot close (and no
+      tree captures at any budget). Because a loopy set has no forward junction-tree
+      sampler, the whole measured set (the `d` one-ways plus the selected pairs) is
+      reconciled into one graphical model over a **triangulated** junction tree via
+      Private-PGM (belief propagation + entropic mirror descent) and sampled from
+      that — McKenna et al.'s *AIM*. A data-independent `min(d(d-1)/2,
+      treewidth·(d-1))` selection rounds, each rejecting any new pair whose
+      triangulated clique would exceed `treewidth + 1` (bounded treewidth → exact
+      inference); at `treewidth = 1` no loop closes, so it reduces to an
+      adaptively-selected tree. Selection + measurement compose to the same exact
+      (\eqn{\epsilon}, \eqn{\delta}); reconciliation is budget-neutral. Uses
+      `treewidth` / `select_frac` (not `structure_frac` / `degree` / `anneal`);
+      flat-table only. New internals: `dp_triangulate` (min-fill → maximal cliques →
+      junction tree), `dp_fit_model_aim`, `dp_sample_codes_pgm` (set-valued
+      separators / new-variable blocks); the mirror-descent core is factored out of
+      `dp_pgm_reconcile` into `dp_pgm_optimize` and shared.
+- Future: an annealed AIM schedule (\eqn{\sigma}-halving over a data-adaptive round
+  count) and model-projection candidate scoring for `select = "aim"`; DP set-union
+  for `character` category discovery under `domain = "dp"`; and tagging a stable
+  0.1.0 for CRAN.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

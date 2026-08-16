@@ -198,6 +198,11 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
                 "and is not supported for a linked DP release. Use the default ",
                 "select = \"fixed\"."), call. = FALSE)
   }
+  if (identical(dp$select, "aim")) {
+    stop(paste0("select = \"aim\" (Full AIM) is currently flat-table only and is ",
+                "not supported for a linked DP release. Use the default ",
+                "select = \"fixed\"."), call. = FALSE)
+  }
   if (dp$degree > 1L) {
     stop(paste0("degree > 1 (a Bayesian network) is currently flat-table only ",
                 "and is not supported for a linked DP release. Use degree = 1."),

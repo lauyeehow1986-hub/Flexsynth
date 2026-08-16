@@ -190,8 +190,18 @@ mirror descent (McKenna et al.'s MST). Reconciliation is pure post-processing of
 already-noised marginals, so it costs **no extra budget** — the (ε, δ) is identical
 to the `"local"` release — yet it denoises overlapping marginals into mutual
 consistency and lets the otherwise-discarded one-ways constrain the model. It works
-for the flat tree and for `select = "adaptive"`. See
-`vignette("differential-privacy")` for scope and the honest utility trade-off.
+for the flat tree and for `select = "adaptive"`. Going all the way,
+`dp_control(select = "aim")` is **Full AIM**: it lifts the adaptive selector's
+running-intersection constraint, so the exponential mechanism may pick *loopy*
+marginals — a pair between two variables already in the model, the cycle a
+junction-tree selector structurally cannot close and no tree captures at any budget.
+A loopy set has no forward sampler, so AIM always reconciles the whole measured set
+into one graphical model over a **triangulated** junction tree with Private-PGM and
+samples from that; the `treewidth` cap bounds the triangulated clique size (so
+inference stays exact), and at `treewidth = 1` it reduces to an adaptively-selected
+tree. Selection and measurement compose to the same exact (ε, δ), and the
+reconciliation is budget-neutral. See `vignette("differential-privacy")` for scope
+and the honest utility trade-off.
 
 ## Learn more
 

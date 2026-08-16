@@ -13,7 +13,7 @@ dp_control(
   dependence = c("tree", "independent"),
   structure_frac = NULL,
   degree = 1L,
-  select = c("fixed", "adaptive"),
+  select = c("fixed", "adaptive", "aim"),
   treewidth = 1L,
   select_frac = 0.25,
   anneal = FALSE,
@@ -115,8 +115,21 @@ selection is model-error-guided \emph{and} — at \code{treewidth >= 2} — can 
 marginals that form loops, capturing higher-order interactions a Chow-Liu tree
 structurally cannot. Ignores \code{dependence} and \code{structure_frac} (supply
 \code{treewidth} / \code{select_frac} instead — setting \code{structure_frac} alongside is an
-error). Currently \strong{flat-table only}: \code{"adaptive"} on a longitudinal or
-linked structure is refused.}
+error). \code{"aim"} is \strong{Full AIM}: it lifts the adaptive selector's
+running-intersection constraint, so the exponential mechanism may pick \emph{loopy}
+marginals — a pair between two variables already in the model, the cycle a
+junction-tree selector structurally cannot close. Because a loopy set has no
+forward junction-tree sampler, \code{"aim"} reconciles the whole measured set (the
+\code{d} one-way marginals plus the selected pairs) into one graphical model over a
+\strong{triangulated} junction tree by \strong{Private-PGM} (belief propagation + mirror
+descent; see \code{estimator}) and samples from that. It runs a data-independent
+\code{min(d (d - 1) / 2, treewidth * (d - 1))} selection rounds, each rejecting any
+new pair whose triangulated clique would exceed \code{treewidth + 1}; at
+\code{treewidth = 1} no loop can be closed, so it reduces to an adaptively-selected
+tree. Like \code{"adaptive"} it uses \code{treewidth} / \code{select_frac} (not
+\code{structure_frac} / \code{degree}), and the reconciliation is budget-neutral. All
+selectors are currently \strong{flat-table only}: \code{"adaptive"} / \code{"aim"} on a
+longitudinal or linked structure is refused.}
 
 \item{treewidth}{Adaptive selection only. Maximum clique size minus one in the
 junction-tree model — the ceiling on interaction order the model can hold.
@@ -129,7 +142,9 @@ Higher clique orders cost more per cell — a \code{(w+1)}-way histogram over \c
 cells per axis is \code{bins^(w+1)} cells, so the per-cell DP noise grows fast; a
 warning is raised when that count is large (\code{bins} is the numeric proxy;
 low-cardinality factor cliques are smaller). Raise it only when interactions
-of that order genuinely matter. Ignored unless \code{select = "adaptive"}.}
+of that order genuinely matter. For \code{select = "aim"} it bounds the model's
+\emph{triangulated} clique size the same way (so \code{1} forbids loops and \code{2} permits
+triangles). Ignored unless \code{select = "adaptive"} or \code{select = "aim"}.}
 
 \item{select_frac}{Adaptive selection only. Fraction of the marginal budget
 spent on the private \strong{selection} (the exponential-mechanism rounds); the
@@ -137,7 +152,8 @@ remaining \code{1 - select_frac} is spent \strong{measuring} the chosen marginal
 the one-way marginals). Default \code{0.25}. Selection tolerates noise well, so a
 modest slice usually gives the best fidelity (the same intuition as
 \code{structure_frac}); both slices compose into the same exact
-(\eqn{\epsilon}, \eqn{\delta}). Ignored unless \code{select = "adaptive"}.}
+(\eqn{\epsilon}, \eqn{\delta}). Ignored unless \code{select = "adaptive"} or
+\code{select = "aim"}.}
 
 \item{anneal}{Adaptive selection only. \code{FALSE} (default) uses the fixed
 \code{d - treewidth}-round schedule with a uniform per-round budget. \code{TRUE} opts
@@ -183,7 +199,9 @@ an \strong{alternative} to \code{structure_frac}, to \code{degree > 1}, and to
 \code{anneal = TRUE} (setting any of those alongside \code{estimator = "pgm"} is an
 error), and there is nothing to reconcile in \code{dependence = "independent"}.
 Refused on longitudinal / linked releases (flat-table only). Ignored (no-op)
-for \code{"local"}.}
+for \code{"local"}. \code{select = "aim"} always reconciles with Private-PGM by
+construction (a loopy marginal set has no local sampler), so \code{estimator} is
+moot there.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

@@ -117,8 +117,21 @@
 #'   marginals that form loops, capturing higher-order interactions a Chow-Liu tree
 #'   structurally cannot. Ignores `dependence` and `structure_frac` (supply
 #'   `treewidth` / `select_frac` instead — setting `structure_frac` alongside is an
-#'   error). Currently **flat-table only**: `"adaptive"` on a longitudinal or
-#'   linked structure is refused.
+#'   error). `"aim"` is **Full AIM**: it lifts the adaptive selector's
+#'   running-intersection constraint, so the exponential mechanism may pick *loopy*
+#'   marginals — a pair between two variables already in the model, the cycle a
+#'   junction-tree selector structurally cannot close. Because a loopy set has no
+#'   forward junction-tree sampler, `"aim"` reconciles the whole measured set (the
+#'   `d` one-way marginals plus the selected pairs) into one graphical model over a
+#'   **triangulated** junction tree by **Private-PGM** (belief propagation + mirror
+#'   descent; see `estimator`) and samples from that. It runs a data-independent
+#'   `min(d (d - 1) / 2, treewidth * (d - 1))` selection rounds, each rejecting any
+#'   new pair whose triangulated clique would exceed `treewidth + 1`; at
+#'   `treewidth = 1` no loop can be closed, so it reduces to an adaptively-selected
+#'   tree. Like `"adaptive"` it uses `treewidth` / `select_frac` (not
+#'   `structure_frac` / `degree`), and the reconciliation is budget-neutral. All
+#'   selectors are currently **flat-table only**: `"adaptive"` / `"aim"` on a
+#'   longitudinal or linked structure is refused.
 #' @param treewidth Adaptive selection only. Maximum clique size minus one in the
 #'   junction-tree model — the ceiling on interaction order the model can hold.
 #'   `1` (default) builds a tree (each measured marginal is a pair; equivalent
@@ -130,7 +143,9 @@
 #'   cells per axis is `bins^(w+1)` cells, so the per-cell DP noise grows fast; a
 #'   warning is raised when that count is large (`bins` is the numeric proxy;
 #'   low-cardinality factor cliques are smaller). Raise it only when interactions
-#'   of that order genuinely matter. Ignored unless `select = "adaptive"`.
+#'   of that order genuinely matter. For `select = "aim"` it bounds the model's
+#'   *triangulated* clique size the same way (so `1` forbids loops and `2` permits
+#'   triangles). Ignored unless `select = "adaptive"` or `select = "aim"`.
 #' @param anneal Adaptive selection only. `FALSE` (default) uses the fixed
 #'   `d - treewidth`-round schedule with a uniform per-round budget. `TRUE` opts
 #'   into **AIM-style budget annealing** — a data-adaptive round schedule: the
@@ -155,7 +170,8 @@
 #'   the one-way marginals). Default `0.25`. Selection tolerates noise well, so a
 #'   modest slice usually gives the best fidelity (the same intuition as
 #'   `structure_frac`); both slices compose into the same exact
-#'   (\eqn{\epsilon}, \eqn{\delta}). Ignored unless `select = "adaptive"`.
+#'   (\eqn{\epsilon}, \eqn{\delta}). Ignored unless `select = "adaptive"` or
+#'   `select = "aim"`.
 #' @param estimator How the measured marginals are turned into the generative
 #'   model, for a flat [synth()] tree or adaptive release. `"local"` (default)
 #'   is every existing path unchanged: each marginal is used **locally** — the
@@ -181,7 +197,9 @@
 #'   `anneal = TRUE` (setting any of those alongside `estimator = "pgm"` is an
 #'   error), and there is nothing to reconcile in `dependence = "independent"`.
 #'   Refused on longitudinal / linked releases (flat-table only). Ignored (no-op)
-#'   for `"local"`.
+#'   for `"local"`. `select = "aim"` always reconciles with Private-PGM by
+#'   construction (a loopy marginal set has no local sampler), so `estimator` is
+#'   moot there.
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -320,7 +338,7 @@ dp_control <- function(epsilon,
                        dependence = c("tree", "independent"),
                        structure_frac = NULL,
                        degree = 1L,
-                       select = c("fixed", "adaptive"),
+                       select = c("fixed", "adaptive", "aim"),
                        treewidth = 1L,
                        select_frac = 0.25,
                        anneal = FALSE,
@@ -399,10 +417,10 @@ dp_control <- function(epsilon,
                   "learners for the tree model; set structure_frac = NULL."),
            call. = FALSE)
     }
-    if (select == "adaptive") {
-      stop(paste0("`degree` > 1 (a Bayesian network) and `select = \"adaptive\"` ",
-                  "(a junction tree) are alternative structure searches; pick ",
-                  "one."), call. = FALSE)
+    if (select %in% c("adaptive", "aim")) {
+      stop(paste0("`degree` > 1 (a Bayesian network) and `select = \"", select,
+                  "\"` are alternative structure searches; pick one."),
+           call. = FALSE)
     }
   }
   if (!is.numeric(treewidth) || length(treewidth) != 1L || is.na(treewidth) ||
@@ -418,15 +436,20 @@ dp_control <- function(epsilon,
   if (!is.logical(anneal) || length(anneal) != 1L || is.na(anneal)) {
     stop("`anneal` must be a single TRUE or FALSE.", call. = FALSE)
   }
+  if (select == "aim" && isTRUE(anneal)) {
+    stop(paste0("annealed AIM (`select = \"aim\"` with `anneal = TRUE`) is not ",
+                "yet supported; use anneal = FALSE (a fixed-round schedule)."),
+         call. = FALSE)
+  }
   if (isTRUE(anneal) && select != "adaptive") {
     stop(paste0("`anneal = TRUE` needs `select = \"adaptive\"`: it anneals the ",
                 "adaptive selector's per-round budget over a data-adaptive ",
                 "round schedule."), call. = FALSE)
   }
-  if (select == "adaptive") {
+  if (select %in% c("adaptive", "aim")) {
     if (!is.null(structure_frac)) {
-      stop(paste0("`structure_frac` applies to the fixed tree fitter; adaptive ",
-                  "selection uses `select_frac` (and `treewidth`) instead - set ",
+      stop(paste0("`structure_frac` applies to the fixed tree fitter; `select = \"",
+                  select, "\"` uses `select_frac` (and `treewidth`) instead - set ",
                   "structure_frac = NULL."), call. = FALSE)
     }
   }
@@ -511,12 +534,12 @@ dp_control <- function(epsilon,
   # the per-cell noise swamps the signal. The order is the treewidth for adaptive
   # junction cliques, or the degree for a Bayesian network. Warn on that (bins is
   # the numeric-variable proxy; low-cardinality factor families are smaller).
-  fam_order <- if (select == "adaptive") treewidth else if (degree > 1L) degree
-               else 0L
+  fam_order <- if (select %in% c("adaptive", "aim")) treewidth
+               else if (degree > 1L) degree else 0L
   if (fam_order > 0L) {
     max_cells <- as.numeric(bins)^(fam_order + 1L)
     if (max_cells > 5e4) {
-      what <- if (select == "adaptive") c("treewidth", "clique")
+      what <- if (select %in% c("adaptive", "aim")) c("treewidth", "clique")
               else c("degree", "family")
       warning(sprintf(paste0("%s %d makes each %s up to bins^%d = %.0f cells; ",
                              "at that width the per-cell DP noise can dominate ",
@@ -554,7 +577,7 @@ dp_control <- function(epsilon,
       dependence = dependence,
       structure_frac = structure_frac,          # NULL or number in (0, 1)
       degree = degree,                          # integer >= 1 (Bayesian network)
-      select = select,                          # "fixed" or "adaptive"
+      select = select,                          # "fixed", "adaptive", or "aim"
       treewidth = treewidth,                    # integer >= 1 (adaptive only)
       select_frac = select_frac,                # number in (0, 1) (adaptive only)
       anneal = anneal,                          # logical (adaptive only)
@@ -593,6 +616,10 @@ print.dp_control <- function(x, ...) {
         if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
         else " (", signif(x$select_frac, 3), " of budget selects marginals)\n",
         sep = "")
+  if (identical(x$select, "aim"))
+    cat("  select    : Full AIM (loopy marginals + Private-PGM), treewidth ",
+        x$treewidth, " (", signif(x$select_frac, 3),
+        " of budget selects marginals)\n", sep = "")
   if (identical(x$estimator, "pgm"))
     cat("  estimator : Private-PGM reconciliation",
         "(belief propagation + mirror descent; budget-neutral)\n")

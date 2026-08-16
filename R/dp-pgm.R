@@ -118,32 +118,21 @@ dp_pgm_infer <- function(cv, edges, theta, nbins) {
   })
 }
 
-# Reconcile a set of noisy measured marginals onto the clique structure of a
-# fitted junction / tree model. `cliques` is the fitter's ancestral clique list
-# (each list(vars, sep, new); the first has sep = integer(0)); `measurements` is
-# a list of list(vars, y) noisy marginal histograms (y in the factor cell order
-# over sort(vars)). Runs entropic mirror descent -- infer, take the marginal
-# residual as the mirror gradient, step the log potentials, backtrack the step so
-# the least-squares loss decreases -- to a fixed point, then writes each clique's
-# reconciled joint (root) or P(new | sep) (child) back in place. Returns the
-# updated cliques, the reconciled clique beliefs, and the initial / final loss.
-dp_pgm_reconcile <- function(cliques, measurements, nbins, vars, n_est,
-                             max_iter = 500L, tol = 1e-12) {
-  K <- length(cliques)
-  cv <- lapply(cliques, function(cl) sort(as.integer(cl$vars)))
-
-  # Junction tree over the cliques: maximum-weight spanning tree by shared-
-  # variable count (a valid JT for the triangulated clique sets the fitters
-  # produce). Reuses Prim's from the tree fitter.
-  if (K == 1L) {
-    edges <- list()
-  } else {
-    W <- matrix(0, K, K)
-    for (i in seq_len(K - 1L)) for (j in (i + 1L):K)
-      W[i, j] <- W[j, i] <- length(intersect(cv[[i]], cv[[j]]))
-    edges <- dp_max_spanning_tree(W)
-  }
-
+# Reconcile a set of noisy measured marginals onto a fixed junction tree by
+# entropic mirror descent: infer the clique marginals of p ~ exp(sum_c theta_c),
+# take each measurement's marginal residual (mu - y) as the mirror gradient
+# (lifted to its hosting clique), step the log potentials, and backtrack the step
+# so the least-squares loss decreases -- to a fixed point. `cv` is the list of
+# (sorted) clique variable sets, `edges` the junction-tree edges, `measurements`
+# a list of list(vars, y) noisy marginal histograms (y in factor cell order over
+# sort(vars)); each measurement must be a subset of some clique. Returns the
+# reconciled clique beliefs and the initial / final loss / iteration count. This
+# is the shared inference core behind both dp_pgm_reconcile() (which writes the
+# beliefs back into an ancestral sampler shape) and the AIM fitter (which samples
+# the beliefs directly over a general triangulated junction tree; see dp-aim.R).
+dp_pgm_optimize <- function(cv, edges, measurements, nbins,
+                            max_iter = 500L, tol = 1e-12) {
+  K <- length(cv)
   # Normalise each measurement to a distribution and bind it to a hosting clique.
   meas <- lapply(measurements, function(m) {
     mv <- sort(as.integer(m$vars))
@@ -195,6 +184,35 @@ dp_pgm_reconcile <- function(cliques, measurements, nbins, vars, n_est,
     alpha <- min(step * 1.5, 1e3)
     if (rel < tol) break
   }
+  list(bel = bel, loss0 = L0, loss = L, iters = iters)
+}
+
+# Reconcile a set of noisy measured marginals onto the clique structure of a
+# fitted junction / tree model. `cliques` is the fitter's ancestral clique list
+# (each list(vars, sep, new); the first has sep = integer(0)); `measurements` is
+# a list of list(vars, y) noisy marginal histograms (y in the factor cell order
+# over sort(vars)). Builds the junction tree over the cliques (maximum-weight
+# spanning tree by shared-variable count -- a valid JT for the triangulated
+# clique sets the fitters produce), runs the shared mirror-descent core, then
+# writes each clique's reconciled joint (root) or P(new | sep) (child) back in
+# place. Returns the updated cliques, the reconciled clique beliefs, and the
+# initial / final loss.
+dp_pgm_reconcile <- function(cliques, measurements, nbins, vars, n_est,
+                             max_iter = 500L, tol = 1e-12) {
+  K <- length(cliques)
+  cv <- lapply(cliques, function(cl) sort(as.integer(cl$vars)))
+
+  if (K == 1L) {
+    edges <- list()
+  } else {
+    W <- matrix(0, K, K)
+    for (i in seq_len(K - 1L)) for (j in (i + 1L):K)
+      W[i, j] <- W[j, i] <- length(intersect(cv[[i]], cv[[j]]))
+    edges <- dp_max_spanning_tree(W)
+  }
+
+  opt <- dp_pgm_optimize(cv, edges, measurements, nbins, max_iter, tol)
+  bel <- opt$bel
 
   # Write the reconciled marginals back into the sampler's clique shape.
   cl_out <- cliques
@@ -212,5 +230,6 @@ dp_pgm_reconcile <- function(cliques, measurements, nbins, vars, n_est,
       cl_out[[c]]$cond <- t(apply(cond, 1L, dp_normalise))
     }
   }
-  list(cliques = cl_out, mu = bel, loss0 = L0, loss = L, iters = iters)
+  list(cliques = cl_out, mu = bel, loss0 = opt$loss0, loss = opt$loss,
+       iters = opt$iters)
 }

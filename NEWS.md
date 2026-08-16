@@ -1,5 +1,24 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: Full AIM.** `dp_control(select = "aim")` lifts the running-intersection
+  constraint on the `select = "adaptive"` junction-tree selector, so the
+  exponential mechanism may pick *loopy* marginals — a pairwise marginal between two
+  variables already in the model, the cycle a junction-tree selector structurally
+  cannot close (and that no tree captures at any budget). Because a loopy set has no
+  forward junction-tree sampler, AIM reconciles the whole measured set (the `d`
+  one-way marginals plus the selected pairs) into one graphical model over a
+  **triangulated** junction tree via **Private-PGM** (belief propagation + entropic
+  mirror descent) and samples from that — following McKenna et al.'s *AIM*. It runs
+  a data-independent `min(d(d-1)/2, treewidth·(d-1))` selection rounds, each
+  rejecting any new pair whose triangulated clique would exceed `treewidth + 1` (so
+  the model's treewidth is bounded and the inference stays exact); at
+  `treewidth = 1` no loop can close, so it reduces to an adaptively-selected tree.
+  Selection and measurement compose into exactly the same (\eqn{\epsilon},
+  \eqn{\delta}) as any other flat slice, and the reconciliation is budget-neutral.
+  Like `"adaptive"` it uses `treewidth` / `select_frac` (not `structure_frac` /
+  `degree` / `anneal`, which are refused), and is flat-table only (refused on
+  longitudinal / linked releases).
+
 * **Track B: Private-PGM inference step.** `dp_control(estimator = "pgm")` adds the
   reconciliation the other (PGM-free) Track B samplers deliberately omit. Instead
   of using each measured marginal *locally* (the tree takes each edge's raw noisy

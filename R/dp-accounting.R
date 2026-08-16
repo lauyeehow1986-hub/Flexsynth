@@ -110,7 +110,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
                                             eps_per_query = NA_real_, frac = 0),
                               longitudinal = NULL, linked = NULL, learn = NULL,
-                              adaptive = NULL, bayes = NULL, estimator = "local") {
+                              adaptive = NULL, bayes = NULL, aim = NULL,
+                              estimator = "local") {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -130,6 +131,7 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       learn = learn,
       adaptive = adaptive,
       bayes = bayes,
+      aim = aim,
       estimator = estimator
     ),
     class = "dp_accounting"
@@ -144,8 +146,11 @@ print.dp_accounting <- function(x, ...) {
       ")-DP,", x$unit, "level\n")
   cat("  mechanism :", x$mechanism,
       if (x$mechanism == "gaussian") paste0("(rho = ", signif(x$rho, 3), " zCDP)") else "", "\n")
-  model_kind <- if (!is.null(x$adaptive))
-    paste0("adaptive junction tree (treewidth ", x$adaptive$treewidth, ")")
+  model_kind <- if (!is.null(x$aim))
+    paste0("Full AIM graphical model (treewidth ", x$aim$treewidth,
+           ", Private-PGM)")
+    else if (!is.null(x$adaptive))
+      paste0("adaptive junction tree (treewidth ", x$adaptive$treewidth, ")")
     else if (!is.null(x$bayes))
       paste0("degree ", x$bayes$degree, " Bayesian network (GreedyBayes)")
     else x$dependence
@@ -158,7 +163,12 @@ print.dp_accounting <- function(x, ...) {
     cat("  histograms:", x$n_marginals,
         "(per-table variable marginals + child count models, composed budget)\n")
   } else if (is.null(x$longitudinal)) {
-    if (!is.null(x$adaptive)) {
+    if (!is.null(x$aim)) {
+      am <- x$aim
+      cat("  marginals :", x$n_marginals,
+          paste0("(", length(x$variables), " one-way + ", am$n_rounds,
+                 " adaptively selected pairs, loopy, composed budget)\n"))
+    } else if (!is.null(x$adaptive)) {
       ad <- x$adaptive
       if (isTRUE(ad$anneal)) {
         cat("  marginals :", x$n_marginals,
@@ -246,6 +256,15 @@ print.dp_accounting <- function(x, ...) {
     cat("  selection : GreedyBayes,", signif(by$select_frac, 3),
         "of budget over", by$n_select, "exponential-mechanism round(s);",
         "per-round eps", signif(by$select_eps, 4), "\n")
+  }
+  if (!is.null(x$aim)) {
+    am <- x$aim
+    cat("  selection : Full AIM (loopy marginals),", signif(am$select_frac, 3),
+        "of budget over", am$n_rounds, "exponential-mechanism round(s);",
+        "per-round eps", signif(am$select_eps, 4), "\n")
+    cat("  estimator : Private-PGM reconciliation over the triangulated model\n")
+    cat("              (belief propagation + mirror descent; post-processing,",
+        "no extra budget)\n")
   }
   if (identical(x$estimator, "pgm")) {
     cat("  estimator : Private-PGM reconciliation of the measured marginals\n")
