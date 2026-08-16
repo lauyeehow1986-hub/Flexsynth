@@ -213,10 +213,11 @@ print.dp_accounting <- function(x, ...) {
           cat("        baseline held:", paste(ti$baseline, collapse = ", "), "\n")
         to <- if (is.null(ti$tran_order)) 1L else ti$tran_order
         tc <- if (is.null(ti$tran_cross)) 0L else ti$tran_cross
-        if (to > 1L || tc > 0L) {
-          cat(sprintf(
-            "        transitions: order %d + %d cross-parent(s) (sensitivity cap - order)\n",
-            to, tc))
+        tp <- if (is.null(ti$tran_parent)) 0L else ti$tran_parent
+        if (to > 1L || tc > 0L || tp > 0L) {
+          cat("        transitions: order ", to, " + ", tc, " cross-parent(s)",
+              if (tp > 0L) paste0(" + ", tp, " parent-attr(s)") else "",
+              " (sensitivity cap - order)\n", sep = "")
           if (!is.null(ti$tran_cross_parents)) {
             pairs <- vapply(names(ti$tran_cross_parents), function(v) {
               cp <- ti$tran_cross_parents[[v]]
@@ -226,6 +227,16 @@ print.dp_accounting <- function(x, ...) {
             pairs <- pairs[!is.na(pairs)]
             if (length(pairs))
               cat("        cross-parents:", paste(pairs, collapse = "; "), "\n")
+          }
+          if (!is.null(ti$tran_parent_parents)) {
+            pairs <- vapply(names(ti$tran_parent_parents), function(v) {
+              pp <- ti$tran_parent_parents[[v]]
+              if (length(pp)) paste0(v, " ~ ", paste(pp, collapse = "+"))
+              else NA_character_
+            }, character(1))
+            pairs <- pairs[!is.na(pairs)]
+            if (length(pairs))
+              cat("        parent-attrs:", paste(pairs, collapse = "; "), "\n")
           }
         }
       }

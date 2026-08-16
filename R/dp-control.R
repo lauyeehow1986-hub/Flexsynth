@@ -161,6 +161,28 @@
 #'   variable on its own past only. Applies to a longitudinal `synth()` release and
 #'   to every longitudinally-modelled linked child; ignored by flat releases and
 #'   non-longitudinal linked children.
+#' @param transition_parent Linked DP only ([synth_linked()]), longitudinal
+#'   children. Number of **immediate-parent** attributes that additionally
+#'   condition each time-varying child variable's transition. Today
+#'   `cross_table = TRUE` cross-conditions only a longitudinal child's
+#'   *initial state* on the synthetic parent; the parent's influence then rides
+#'   the own-lag chain and decays. `transition_parent = p` instead re-injects the
+#'   (subject-invariant) parent attributes into the transition tensor at **every**
+#'   step — moving from \eqn{P(v_t \mid v_{t-1}, \dots)} to also conditioning on
+#'   the parent's \eqn{w} for the `p` parent attributes `w` most strongly
+#'   associated with `v` — so parent \eqn{\to} child dependence stays anchored
+#'   across the whole trajectory rather than washing out. The parents are selected
+#'   automatically and **budget-neutrally** from the parent-by-child joints that
+#'   the cross-conditioned initial state already measures, so it costs nothing in
+#'   the (\eqn{\epsilon}, \eqn{\delta}) budget (a transition tuple still lands in
+#'   exactly one cell — same sensitivity, same histogram count), trading
+#'   budget-free structure for cell sparsity. Because it reuses those joints,
+#'   `transition_parent > 0` **requires `cross_table = TRUE`** for the child (an
+#'   error is raised otherwise). `0` (default) leaves the transitions parent-free
+#'   (the initial-state cross-conditioning is unaffected). Composes with
+#'   `baseline`, `transition_order` and `transition_cross`. Ignored by flat
+#'   `synth()` releases and non-longitudinal linked children, which have no parent
+#'   trajectory to condition.
 #' @param bins Number of equal-width bins used to discretise each numeric
 #'   variable (default 12). Finer grids sharpen one-way marginals but make the
 #'   noisy two-way marginals used by `dependence = "tree"` weaker per cell, so a
@@ -198,6 +220,7 @@ dp_control <- function(epsilon,
                        baseline = NULL,
                        transition_order = 1L,
                        transition_cross = 0L,
+                       transition_parent = 0L,
                        bins = 12L,
                        bounds = NULL,
                        domain = c("dp", "public", "data"),
@@ -285,6 +308,13 @@ dp_control <- function(epsilon,
                 "variable temporal parents are selected from the pairwise ",
                 "marginals that only the tree model measures."), call. = FALSE)
   }
+  if (!is.numeric(transition_parent) || length(transition_parent) != 1L ||
+      is.na(transition_parent) || transition_parent < 0 ||
+      transition_parent != as.integer(transition_parent)) {
+    stop("`transition_parent` must be a single non-negative integer.",
+         call. = FALSE)
+  }
+  transition_parent <- as.integer(transition_parent)
   if (!is.numeric(bins) || length(bins) != 1L || is.na(bins) || bins < 2 ||
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
@@ -321,6 +351,7 @@ dp_control <- function(epsilon,
       baseline = baseline,                        # NULL or character column names
       transition_order = transition_order,        # integer >= 1 (own-lag order)
       transition_cross = transition_cross,        # integer >= 0 (cross-parents)
+      transition_parent = transition_parent,      # integer >= 0 (parent attrs)
       bins = as.integer(bins),
       bounds = bounds,
       domain = domain,
@@ -353,9 +384,11 @@ print.dp_control <- function(x, ...) {
         paste(x$baseline, collapse = ", "), "\n")
   ord <- if (is.null(x$transition_order)) 1L else x$transition_order
   crs <- if (is.null(x$transition_cross)) 0L else x$transition_cross
-  if (ord > 1L || crs > 0L)
-    cat("  transitions: order ", ord, " + ", crs,
-        " cross-parent(s) (longitudinal DP)\n", sep = "")
+  tpar <- if (is.null(x$transition_parent)) 0L else x$transition_parent
+  if (ord > 1L || crs > 0L || tpar > 0L)
+    cat("  transitions: order ", ord, " + ", crs, " cross-parent(s)",
+        if (tpar > 0L) paste0(" + ", tpar, " parent-attr(s)") else "",
+        " (longitudinal DP)\n", sep = "")
   cat("  bins      :", x$bins, "\n")
   cat("  domain    :", x$domain,
       if (x$domain == "dp") paste0("(", signif(x$domain_frac, 3),

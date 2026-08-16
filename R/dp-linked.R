@@ -280,6 +280,7 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
   # child's cap before any budget is spent.
   ord   <- if (is.null(dp$transition_order)) 1L else as.integer(dp$transition_order)
   cross <- if (is.null(dp$transition_cross)) 0L else as.integer(dp$transition_cross)
+  tpar  <- if (is.null(dp$transition_parent)) 0L else as.integer(dp$transition_parent)
   base_cols <- if (is.null(dp$baseline)) character(0) else dp$baseline
   held_flag <- stats::setNames(vector("list", length(order)), order)
   for (t in order) {
@@ -290,6 +291,18 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         "1 (%d) for child table '%s' so order-%d within-unit transitions can be ",
         "measured under its cap. Raise its `max_rows_per_person` or lower ",
         "transition_order."), ord, caps$local[[t]] - 1L, t, ord), call. = FALSE)
+    }
+    # Parent-conditioned transitions reuse the parent-by-child joints that the
+    # cross-conditioned initial state already measures, so they are budget-neutral
+    # but need that model to exist: require cross_table on this longitudinal child.
+    if (use_long[[t]] && tpar > 0L && !use_long_cross[[t]]) {
+      stop(sprintf(paste0(
+        "linked DP longitudinal: transition_parent (%d) for child table '%s' needs ",
+        "its initial state cross-conditioned on a modellable parent - set ",
+        "cross_table = TRUE (and ensure table '%s' has a modellable parent), or ",
+        "transition_parent = 0. The parent-conditioned transitions reuse the ",
+        "parent-by-child joints the cross-conditioned initial state measures, so ",
+        "they add no budget."), tpar, t, t), call. = FALSE)
     }
   }
 
@@ -404,7 +417,7 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         long_model <- dp_fit_child_longitudinal(
           cdata[[t]], hierarchy$fk[[t]], hierarchy$own[[t]], dom, vt, nbins,
           dp, calib, parent_ctx, parent_nbins,
-          held = held_flag[[t]], ord = ord, cross = cross)
+          held = held_flag[[t]], ord = ord, cross = cross, tran_parent = tpar)
       } else {
         codes <- stats::setNames(
           lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
@@ -484,6 +497,7 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
             # row from the parent-conditioned model using the synthetic parent's
             # codes at that first row; otherwise the Markov engine draws it itself.
             first_codes <- NULL
+            pctx_gen <- NULL
             if (isTRUE(lm$init_cross)) {
               im     <- lm$init_model
               frows  <- which(ppos == 1L)
@@ -491,11 +505,17 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
                 lapply(im$pvars, function(u) codes[[p]][rep_rows[frows], u]),
                 im$pvars)
               first_codes <- dp_sample_child_codes(im, pctx_f, length(frows))
+              # When the transitions also condition on parent attributes, carry the
+              # synthetic parent's codes down to every child row (aligned to ppos).
+              if (isTRUE(lm$tran_parent > 0L))
+                pctx_gen <- stats::setNames(
+                  lapply(im$pvars, function(u) codes[[p]][rep_rows, u]), im$pvars)
             }
             cmat <- if (isTRUE(lm$use_tensor))
               dp_markov_codes_tensor(lm$init_model, lm$tensors, ppos, f$vars,
                                      lm$held, lm$tv_vars, lm$order,
-                                     first_codes = first_codes)
+                                     first_codes = first_codes,
+                                     parent_ctx = pctx_gen)
             else
               dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars, lm$held,
                               first_codes = first_codes)
@@ -549,6 +569,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
          tran_order = if (!is.null(lm)) lm$order else 1L,
          tran_cross = if (!is.null(lm)) lm$cross else 0L,
          tran_cross_parents = if (!is.null(lm)) lm$cross_parents else NULL,
+         tran_parent = if (!is.null(lm)) lm$tran_parent else 0L,
+         tran_parent_parents = if (!is.null(lm)) lm$parent_parents else NULL,
          count_sensitivity = if (is.na(p)) NA_integer_ else caps$path[[p]],
          rows_dropped = dropped[[t]])
   })

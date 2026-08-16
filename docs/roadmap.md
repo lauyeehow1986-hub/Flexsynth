@@ -203,6 +203,19 @@ engine; Track B is the opt-in differentially private engine.
   transition sensitivity to `path_cap[parent] * (branching_cap - order)` (so
   `order <= branching_cap - 1`, validated per table). All three compose with the
   combined cross-table + longitudinal path above.
+- [x] **Parent-conditioned transitions on a linked longitudinal child**
+  (`dp_control(transition_parent = p)` with `synth_linked(..., longitudinal = ...,
+  cross_table = TRUE)`). Where the combined path above cross-conditions only the
+  **initial state** (parent dependence then decays along the own-lag chain),
+  `transition_parent` re-injects the synthetic parent's subject-invariant
+  attributes into the child's **transition** tensor at every step: each
+  time-varying column additionally conditions on the `p` immediate-parent
+  attributes most strongly associated with it, keeping parent → child dependence
+  anchored across the whole trajectory. The parents are chosen budget-neutrally
+  from the parent-by-child joints the cross-conditioned initial state already
+  measures, so it adds no histogram and no sensitivity (a tuple still lands in one
+  cell) — hence it **requires** `cross_table = TRUE` for that child. Composes with
+  baseline / `transition_order` / `transition_cross`.
 - Future: PrivBayes
   greedy degree>1 networks and AIM-style adaptive marginal selection.
   (Data-independent / DP-estimated bin edges are done; see the post-Phase-8 item

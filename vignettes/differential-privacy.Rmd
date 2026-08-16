@@ -500,13 +500,42 @@ accounting would add a `baseline held: ...` line and charge one fewer transition
 histogram. Both settings compose with the combined cross-conditioned initial state
 above.
 
+### Anchoring the parent across the whole trajectory
+
+The combined cross-conditioned model above cross-conditions only a child's
+*initial state*; the parent's influence then rides the own-lag chain and fades.
+`dp_control(transition_parent = p)` instead re-injects the synthetic parent's
+subject-invariant attributes into the child's **transition** at every step — each
+time-varying column conditions its next value on the `p` immediate-parent
+attributes most strongly associated with it, so parent → child dependence stays
+anchored across the trajectory. The parents are chosen **budget-neutrally** from
+the parent-by-child joints the cross-conditioned initial state already measures, so
+it adds no histogram and no sensitivity — which is exactly why it **requires**
+`cross_table = TRUE`:
+
+```{r linked-longi-tran-parent}
+dp_tp <- dp_control(
+  epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+  max_rows_per_person = c(visits = 6), longitudinal = "visits",
+  cross_table = TRUE, transition_parent = 1,
+  domain = "public", bounds = list(age = c(18, 100)))
+
+res_tp <- synth_linked(
+  tables     = list(patients = patients, visits = visits),
+  structures = list(patients = ~ id, visits = ~ id / visit_num),
+  keys       = list(patients = "id", visits = c("id", "visit_num")),
+  privacy    = dp_tp, seed = 1)
+res_tp$privacy
+```
+
+The `visits` line reports `initial state cond. on parent` plus a `transitions: ...
++ 1 parent-attr(s)` line and a `parent-attrs: status ~ ...` mapping — at the same
+$(\epsilon, \delta)$ as the cross-conditioned-initial-state model without it.
+
 ## What Track B does *not* do (yet)
 
 - **Cross-table conditioning beyond the immediate parent** is not modelled;
   `cross_table = TRUE` conditions each child on its immediate parent only.
-- **Cross-conditioning a longitudinal child's *transitions*** is not modelled: the
-  parent conditions the initial state (and thus, through autocorrelation, the whole
-  trajectory), but each within-unit step $P(v_t \mid v_{t-1})$ stays parent-free.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
 

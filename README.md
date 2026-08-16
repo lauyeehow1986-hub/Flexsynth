@@ -135,7 +135,14 @@ transitions), so within-unit autocorrelation across visits survives too. Setting
 both on the same child **combines** them: its initial-state model is
 cross-conditioned on the parent (the only extra cost is the parent-by-child
 initial joints) and the transition chain carries that parent dependence across the
-trajectory. In a
+trajectory. By default that parent dependence rides the own-lag chain and decays;
+`dp_control(transition_parent = p)` instead re-injects the synthetic parent's
+subject-invariant attributes into the child's **transition** at every step (each
+time-varying column conditions on its `p` most associated parent attributes),
+keeping parent→child dependence anchored across the whole trajectory. The parents
+are chosen budget-neutrally from the parent-by-child joints the cross-conditioned
+initial state already measures, so it costs nothing in the budget and **requires**
+`cross_table = TRUE` for that child. In a
 longitudinal release, `dp_control(baseline = c(...))` names
 subject-invariant columns (e.g. birth sex, a baseline measurement): they are
 modelled once in the initial state and held **exactly constant** across a

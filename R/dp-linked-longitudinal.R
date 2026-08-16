@@ -115,10 +115,18 @@ dp_longi_n_init <- function(nC, dp) {
 # one cell); a higher order lowers the transition sensitivity to path_cap * (cap -
 # ord). These mirror the flat DP longitudinal engine (dp-longitudinal.R), applied
 # per child table.
+#
+# `tran_parent` (dp_control(transition_parent), requires the cross-conditioned
+# initial state so `parent_ctx` is present) additionally conditions each
+# time-varying column's transition on its `tran_parent` most strongly associated
+# immediate-PARENT attributes - reusing the parent-by-child joints the init model
+# already measured (init_model$parent_mi) to pick them, so it stays budget-neutral
+# and re-anchors the parent dependence at every step instead of only at the start.
 dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
                                       dp, calib,
                                       parent_ctx = NULL, parent_nbins = NULL,
-                                      held = NULL, ord = 1L, cross = 0L) {
+                                      held = NULL, ord = 1L, cross = 0L,
+                                      tran_parent = 0L) {
   # Order rows so each parent unit's children are contiguous and temporal.
   ord_ix <- do.call(order, c(lapply(fk, function(c) cdata_t[[c]]),
                              list(cdata_t[[own]])))
@@ -153,17 +161,34 @@ dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
   tv_vars <- vars[!held]
   nT      <- length(tv_vars)
 
+  # Parent-attribute conditioning of the transitions (transition_parent) needs the
+  # cross-conditioned initial state: it reuses that model's parent-by-child joints
+  # to pick each variable's parent predictors, and its parent context (reordered to
+  # the temporal layout) to look them up. Silently inert when the init is not
+  # cross-conditioned (parent_ctx absent) - the caller only sets tran_parent > 0
+  # when the child is cross-conditioned.
+  tp <- if (init_cross) as.integer(tran_parent) else 0L
+  parent_parents <- NULL; parent_ctx_ord <- NULL
+  if (tp > 0L && nT > 0L) {
+    parent_parents <- dp_select_parent_lags(init_model$parent_mi, tv_vars, tp)
+    parent_ctx_ord <- lapply(parent_ctx, function(x) x[ord_ix])
+  }
+
   # Transition model over consecutive within-unit tuples for the time-varying
   # columns. A first-order own-lag-only model uses the simple per-variable
-  # matrices; a higher order or any cross-parent uses conditional tensors. Both
-  # draw from `calib$add_noise` at the totals already composed by the caller.
-  use_tensor <- (ord > 1L || cross > 0L) && nT > 0L
+  # matrices; a higher order, any cross-parent, or any parent-attribute uses
+  # conditional tensors. Both draw from `calib$add_noise` at the totals already
+  # composed by the caller.
+  use_tensor <- (ord > 1L || cross > 0L || tp > 0L) && nT > 0L
   tran <- NULL; tensors <- NULL; cross_parents <- NULL
   if (use_tensor) {
     cross_parents <- dp_select_cross_parents(init_model$pairwise_mi, tv_vars,
                                              vars, cross)
     tensors <- dp_fit_transition_tensors(codes, nbins, pos, ord, cross_parents,
-                                         tv_vars, calib$add_noise)
+                                         tv_vars, calib$add_noise,
+                                         parent_ctx = parent_ctx_ord,
+                                         parent_parents = parent_parents,
+                                         parent_nbins = parent_nbins)
   } else if (nT && length(cur_rows)) {
     prev_codes <- stats::setNames(
       lapply(tv_vars, function(v) codes[[v]][prev_rows]), tv_vars)
@@ -183,5 +208,6 @@ dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
        init_model = init_model, tran = tran, tensors = tensors,
        init_cross = init_cross, held = held, tv_vars = tv_vars,
        use_tensor = use_tensor, order = as.integer(ord),
-       cross = as.integer(cross), cross_parents = cross_parents)
+       cross = as.integer(cross), cross_parents = cross_parents,
+       tran_parent = tp, parent_parents = parent_parents)
 }

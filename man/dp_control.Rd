@@ -17,6 +17,7 @@ dp_control(
   baseline = NULL,
   transition_order = 1L,
   transition_cross = 0L,
+  transition_parent = 0L,
   bins = 12L,
   bounds = NULL,
   domain = c("dp", "public", "data"),
@@ -155,6 +156,29 @@ structure for cell sparsity, so keep it small. \code{0} (default) conditions eac
 variable on its own past only. Applies to a longitudinal \code{synth()} release and
 to every longitudinally-modelled linked child; ignored by flat releases and
 non-longitudinal linked children.}
+
+\item{transition_parent}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}), longitudinal
+children. Number of \strong{immediate-parent} attributes that additionally
+condition each time-varying child variable's transition. Today
+\code{cross_table = TRUE} cross-conditions only a longitudinal child's
+\emph{initial state} on the synthetic parent; the parent's influence then rides
+the own-lag chain and decays. \code{transition_parent = p} instead re-injects the
+(subject-invariant) parent attributes into the transition tensor at \strong{every}
+step — moving from \eqn{P(v_t \mid v_{t-1}, \dots)} to also conditioning on
+the parent's \eqn{w} for the \code{p} parent attributes \code{w} most strongly
+associated with \code{v} — so parent \eqn{\to} child dependence stays anchored
+across the whole trajectory rather than washing out. The parents are selected
+automatically and \strong{budget-neutrally} from the parent-by-child joints that
+the cross-conditioned initial state already measures, so it costs nothing in
+the (\eqn{\epsilon}, \eqn{\delta}) budget (a transition tuple still lands in
+exactly one cell — same sensitivity, same histogram count), trading
+budget-free structure for cell sparsity. Because it reuses those joints,
+\code{transition_parent > 0} \strong{requires \code{cross_table = TRUE}} for the child (an
+error is raised otherwise). \code{0} (default) leaves the transitions parent-free
+(the initial-state cross-conditioning is unaffected). Composes with
+\code{baseline}, \code{transition_order} and \code{transition_cross}. Ignored by flat
+\code{synth()} releases and non-longitudinal linked children, which have no parent
+trajectory to condition.}
 
 \item{bins}{Number of equal-width bins used to discretise each numeric
 variable (default 12). Finer grids sharpen one-way marginals but make the

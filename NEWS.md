@@ -1,5 +1,22 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: a linked longitudinal child's transitions can now condition on the
+  parent.** New `dp_control(transition_parent = p)` re-injects the synthetic
+  parent's (subject-invariant) attributes into a longitudinally-modelled child's
+  **transition** tensor at every step, not just its initial state. Until now
+  `cross_table = TRUE` cross-conditioned only the child's *initial state*; the
+  parent's influence then rode the own-lag chain and decayed. With
+  `transition_parent = p`, each time-varying child column additionally conditions
+  its next value on the `p` immediate-parent attributes most strongly associated
+  with it, so parent → child dependence stays anchored across the whole trajectory.
+  The parents are chosen automatically and **budget-neutrally** from the
+  parent-by-child joints the cross-conditioned initial state already measures — so
+  it adds no histogram and no sensitivity (a transition tuple still lands in one
+  cell), and the (\eqn{\epsilon}, \eqn{\delta}) accounting is unchanged. Because it
+  reuses those joints, `transition_parent > 0` **requires `cross_table = TRUE`** for
+  that child (an error is raised otherwise). It composes with `baseline`,
+  `transition_order` and `transition_cross`. Linked-only (a flat longitudinal
+  `synth()` has no parent); ignored by non-longitudinal children.
 * **Track B: baseline columns and deeper transitions now apply to a linked
   longitudinal child.** The two within-unit transition controls of the flat DP
   Markov engine — `dp_control(baseline = ...)` (subject-invariant columns held

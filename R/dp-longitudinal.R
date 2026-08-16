@@ -153,24 +153,55 @@ dp_select_cross_parents <- function(W, tv_vars, all_vars, cross) {
   out
 }
 
+# For each time-varying variable, pick its `k` most strongly associated
+# IMMEDIATE-PARENT attributes from the (noisy) parent-by-child mutual-information
+# matrix `PM` (rows = parent var, cols = child var, from dp_fit_child_cross). The
+# parent attributes are subject-invariant, so they condition every transition step
+# at lag 1. Selection reads only already-released parent-by-child joints, so it
+# spends no budget. Returns a named list (per tv var) of parent var names.
+dp_select_parent_lags <- function(PM, tv_vars, k) {
+  out <- stats::setNames(vector("list", length(tv_vars)), tv_vars)
+  if (k <= 0L || is.null(PM)) {
+    for (v in tv_vars) out[[v]] <- character(0)
+    return(out)
+  }
+  pvars <- rownames(PM)
+  for (v in tv_vars) {
+    w <- PM[, v]
+    out[[v]] <- pvars[utils::head(order(w, decreasing = TRUE), k)]
+  }
+  out
+}
+
 # Fit one conditional transition tensor per time-varying variable. For variable v
 # the tensor counts the tuples (v_t, v_{t-1..t-order}, u_{t-1} for each cross
-# parent u) over the within-unit rows that have a full order-deep history
-# (position > order), then adds calibrated noise. From that single noisy count
-# array it precomputes, for every context depth d = 1..order, the conditional
-# table P(v_t | v_{t-1..t-d}, cross) by marginalising out the deeper own-lags
-# (pure post-processing), so early rows (position <= order) can still be generated
-# without needing their own separate histograms. `codes` is the named list of full
-# code vectors over all variables; `pos` the within-unit position of each row
-# (rows already contiguous and temporal per unit).
+# parent u, w for each immediate-PARENT attribute w) over the within-unit rows
+# that have a full order-deep history (position > order), then adds calibrated
+# noise. From that single noisy count array it precomputes, for every context
+# depth d = 1..order, the conditional table P(v_t | v_{t-1..t-d}, cross, parent)
+# by marginalising out the deeper own-lags (pure post-processing), so early rows
+# (position <= order) can still be generated without needing their own separate
+# histograms. `codes` is the named list of full code vectors over all variables;
+# `pos` the within-unit position of each row (rows already contiguous and temporal
+# per unit). `parent_ctx` (default NULL) is a named list per parent var of code
+# vectors aligned to the same rows as `codes` (subject-invariant, so constant
+# within a unit); `parent_parents` names, per tv var, which parent attributes to
+# condition on (from dp_select_parent_lags); `parent_nbins` their bin counts. The
+# parent dimensions add cells but no histogram and no sensitivity - a transition
+# tuple still lands in one cell - so parent conditioning is budget-neutral.
 dp_fit_transition_tensors <- function(codes, nbins, pos, order, cross_parents,
-                                      tv_vars, add_noise) {
+                                      tv_vars, add_noise, parent_ctx = NULL,
+                                      parent_parents = NULL, parent_nbins = NULL) {
   cur <- which(pos > order)                  # rows with a full order-deep history
   fit_one <- function(v) {
     K  <- nbins[[v]]
     cp <- cross_parents[[v]]; if (is.null(cp)) cp <- character(0)
-    cross_nb <- if (length(cp)) as.integer(nbins[cp]) else integer(0)
-    dims <- c(K, rep(K, order), cross_nb)     # [current, own1..own_order, cross...]
+    pp <- if (!is.null(parent_parents)) parent_parents[[v]] else character(0)
+    if (is.null(pp)) pp <- character(0)
+    cross_nb  <- if (length(cp)) as.integer(nbins[cp]) else integer(0)
+    parent_nb <- if (length(pp)) as.integer(parent_nbins[pp]) else integer(0)
+    # [current, own1..own_order, cross..., parent...]
+    dims <- c(K, rep(K, order), cross_nb, parent_nb)
     ncell <- prod(dims)
     if (length(cur)) {
       comps <- vector("list", length(dims))
@@ -178,39 +209,51 @@ dp_fit_transition_tensors <- function(codes, nbins, pos, order, cross_parents,
       for (j in seq_len(order)) comps[[1L + j]] <- codes[[v]][cur - j]
       for (k in seq_along(cp))
         comps[[1L + order + k]] <- codes[[cp[k]]][cur - 1L]
+      for (k in seq_along(pp))                             # parent attr, constant
+        comps[[1L + order + length(cp) + k]] <- parent_ctx[[pp[k]]][cur]
       counts <- tabulate(dp_combo_index(comps, dims), nbins = ncell)
     } else {
       counts <- integer(ncell)
     }
     A <- array(pmax(add_noise(counts), 0), dim = dims)
-    cross_dims <- if (length(cp)) (order + 2L):(order + 1L + length(cp))
-                  else integer(0)
+    cross_dims  <- if (length(cp)) (order + 2L):(order + 1L + length(cp))
+                   else integer(0)
+    parent_dims <- if (length(pp))
+      (order + 2L + length(cp)):(order + 1L + length(cp) + length(pp))
+                   else integer(0)
     depth <- lapply(seq_len(order), function(d) {
-      keep <- c(2L:(d + 1L), cross_dims, 1L)   # own1..d, cross, then current LAST
+      # own1..d, cross, parent, then current LAST
+      keep <- c(2L:(d + 1L), cross_dims, parent_dims, 1L)
       red  <- if (length(keep) == length(dims)) aperm(A, keep)
               else apply(A, keep, sum)
       nparent <- prod(dims[keep[-length(keep)]])
       tab <- matrix(as.vector(red), nparent, K)
       t(apply(tab, 1L, dp_normalise))          # row = parent combo -> P(current|.)
     })
-    list(depth_tables = depth, own = v, cross = cp,
-         cross_nbins = cross_nb, K = as.integer(K), order = as.integer(order))
+    list(depth_tables = depth, own = v, cross = cp, cross_nbins = cross_nb,
+         parent = pp, parent_nbins = parent_nb,
+         K = as.integer(K), order = as.integer(order))
   }
   stats::setNames(lapply(tv_vars, fit_one), tv_vars)
 }
 
 # Higher-order / cross-variable analogue of dp_markov_codes(). Time-varying
 # variables are stepped through their transition tensors: at position t the
-# context is min(t - 1, order) own lags plus each variable's cross parents at lag
-# 1, looked up in the precomputed depth-d conditional table. Held (baseline)
-# variables are carried forward unchanged, exactly as in dp_markov_codes().
-# `first_codes` (default NULL) lets the caller supply the first-row code matrix
-# instead of drawing it from `init_model` - used when a longitudinally-modelled
-# linked child's initial state is cross-conditioned on its synthetic parent (the
-# caller draws the first rows from the parent-conditioned model). Mirrors the same
-# argument on dp_markov_codes().
+# context is min(t - 1, order) own lags, each variable's cross parents at lag 1,
+# and each variable's immediate-parent attributes (subject-invariant, from
+# `parent_ctx`), looked up in the precomputed depth-d conditional table. Held
+# (baseline) variables are carried forward unchanged, exactly as in
+# dp_markov_codes(). `first_codes` (default NULL) lets the caller supply the
+# first-row code matrix instead of drawing it from `init_model` - used when a
+# longitudinally-modelled linked child's initial state is cross-conditioned on its
+# synthetic parent (the caller draws the first rows from the parent-conditioned
+# model). `parent_ctx` (default NULL) is a named list per parent var of code
+# vectors aligned to the generated rows (the synthetic parent's attribute carried
+# down each child row), consumed when a variable's tensor conditions on parent
+# attributes (dp_control(transition_parent)).
 dp_markov_codes_tensor <- function(init_model, tensors, ppos, vars, held,
-                                   tv_vars, order, first_codes = NULL) {
+                                   tv_vars, order, first_codes = NULL,
+                                   parent_ctx = NULL) {
   nV <- length(vars)
   N  <- length(ppos)
   cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
@@ -230,11 +273,15 @@ dp_markov_codes_tensor <- function(init_model, tensors, ppos, vars, held,
       if (held[vi]) { cmat[rows_t, vi] <- cmat[prv, vi]; next }
       te  <- tensors[[vars[vi]]]
       tab <- te$depth_tables[[d]]
-      comps <- vector("list", d + length(te$cross))
+      np  <- length(te$parent)
+      comps <- vector("list", d + length(te$cross) + np)
       for (j in seq_len(d)) comps[[j]] <- cmat[rows_t - j, vi]
       for (k in seq_along(te$cross))
         comps[[d + k]] <- cmat[rows_t - 1L, vcol[[te$cross[k]]]]
-      combo <- dp_combo_index(comps, c(rep(te$K, d), te$cross_nbins))
+      for (k in seq_len(np))                     # parent attr at these rows
+        comps[[d + length(te$cross) + k]] <- parent_ctx[[te$parent[k]]][rows_t]
+      combo <- dp_combo_index(comps,
+                              c(rep(te$K, d), te$cross_nbins, te$parent_nbins))
       child <- integer(length(rows_t))
       for (a in unique(combo)) {
         sel <- which(combo == a)

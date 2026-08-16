@@ -161,10 +161,23 @@ dp_fit_child_cross <- function(child_codes, child_nbins,
     cc
   } else NULL
 
+  # Parent-by-child mutual information (rows = parent var, cols = child var), a
+  # post-processing read of the parent-by-child joints already measured above.
+  # When this model seeds a longitudinally-modelled child's initial state, it lets
+  # dp_control(transition_parent) pick each time-varying child variable's most
+  # associated parent attributes to condition its transitions on - budget-neutrally,
+  # since those joints are already released. Measured for both dependence modes
+  # (the parent-by-child joints are always taken).
+  parent_mi <- if (nP > 0L) {
+    pm <- W[seq_len(nP), nP + seq_len(nC), drop = FALSE]
+    dimnames(pm) <- list(pvars, cvars)
+    pm
+  } else NULL
+
   list(kind = "child-cross", cvars = cvars, vars = cvars, pvars = pvars, nP = nP,
        child_nbins = child_nbins, edges = edges, cond = cond,
        marginals = lapply(c1, dp_normalise), n_est = n_est,
-       pairwise_mi = child_mi)
+       pairwise_mi = child_mi, parent_mi = parent_mi)
 }
 
 # Draw child variable codes conditioned on parent context. `parent_context` is a
