@@ -18,6 +18,7 @@ dp_control(
   select_frac = 0.25,
   anneal = FALSE,
   estimator = c("local", "pgm"),
+  scoring = c("independence", "model"),
   cross_table = FALSE,
   longitudinal = FALSE,
   baseline = NULL,
@@ -204,6 +205,25 @@ Refused on longitudinal / linked releases (flat-table only). Ignored (no-op)
 for \code{"local"}. \code{select = "aim"} always reconciles with Private-PGM by
 construction (a loopy marginal set has no local sampler), so \code{estimator} is
 moot there.}
+
+\item{scoring}{How \code{select = "aim"} scores each candidate marginal in its
+exponential-mechanism rounds. \code{"independence"} (default) scores a pair by how
+far its true joint sits from the \strong{product of its one-way marginals} — the
+cheap reference every existing path uses. \code{"model"} opts into AIM's actual
+quality function: each candidate is scored against the \strong{current reconciled
+Private-PGM model's own marginal} over that pair, so a loopy pair the model
+already explains (through the marginals measured so far) no longer looks
+surprising and the budget is steered to the genuinely worst-fit interaction.
+The model reference is read from the already-privatised marginals — reconciled
+each round and projected onto the candidate (a not-yet-measured pair projects
+across cliques of the junction tree) — so it is \strong{pure post-processing}: the
+exponential mechanism's sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta})
+are \strong{identical} to \code{"independence"}; only which marginals get selected
+changes. It costs extra computation (a reconciliation per selection round).
+Composes with \code{anneal}. Requires \code{select = "aim"} (an error otherwise); the
+adaptive selector's candidates always introduce a fresh variable, so its model
+projection reduces to the independence product anyway. Ignored (no-op) for
+\code{"independence"}.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

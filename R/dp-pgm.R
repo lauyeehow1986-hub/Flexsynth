@@ -187,6 +187,75 @@ dp_pgm_optimize <- function(cv, edges, measurements, nbins,
   list(bel = bel, loss0 = L0, loss = L, iters = iters)
 }
 
+# Project a reconciled graphical model onto an arbitrary variable subset. `cv` is
+# the list of (sorted) clique variable sets, `edges` the junction-tree edges (c(a,
+# b) clique-index pairs), `bel` the normalised clique beliefs from
+# dp_pgm_optimize(), `target` the variables to project onto (here a candidate
+# pair). Returns a normalised factor over sort(target) -- the model's marginal.
+#
+# When one clique already contains all of `target` this is a single
+# marginalisation. Otherwise the marginal is assembled along the unique
+# junction-tree path between a clique holding target[1] and a clique holding
+# target[2], propagating the separator conditional P(clique | separator) =
+# bel_clique / bel_clique-down-to-separator at each step. This is exact by the
+# junction-tree Markov property (a separator d-separates the two sides), and reuses
+# the calibrated beliefs' reparametrisation p = prod bel_c / prod bel_sep. An empty
+# separator along the path (disconnected measured components) collapses the step to
+# an independent product -- exactly the model's implication when the target
+# variables share no measured dependence path. Written for a pair; the two-endpoint
+# walk covers every candidate the AIM selector scores.
+dp_pgm_project <- function(cv, edges, bel, target, nbins) {
+  target <- sort(as.integer(target))
+  K <- length(cv)
+  host <- function(vs) {
+    for (c in seq_len(K)) if (all(vs %in% cv[[c]])) return(c)
+    NA_integer_
+  }
+  norm_f <- function(f) { s <- sum(f$vals); if (s > 0) f$vals <- f$vals / s; f }
+
+  c_all <- host(target)
+  if (!is.na(c_all))
+    return(norm_f(dp_factor_marginalize(bel[[c_all]], target, nbins)))
+
+  # Two-endpoint walk (pairs). Anchor a clique holding target[1], destination a
+  # clique holding target[2]; they differ (else host(target) would have found one).
+  a <- target[1L]; b <- target[2L]
+  adj <- vector("list", K)
+  for (e in edges) { u <- e[1L]; v <- e[2L]
+    adj[[u]] <- c(adj[[u]], v); adj[[v]] <- c(adj[[v]], u) }
+  path_between <- function(src, dst) {
+    parent <- integer(K); vis <- logical(K); vis[src] <- TRUE; q <- src
+    while (length(q)) { x <- q[1L]; q <- q[-1L]
+      if (x == dst) break
+      for (nb in adj[[x]]) if (!vis[nb]) { vis[nb] <- TRUE; parent[nb] <- x; q <- c(q, nb) } }
+    out <- dst; p <- dst
+    while (p != src) { p <- parent[p]; out <- c(p, out) }
+    out
+  }
+  sepvars <- function(u, v) sort(intersect(cv[[u]], cv[[v]]))
+  # num / den (den's vars a subset of num's), broadcast; zero denominators pass
+  # the numerator through (beliefs from exp(theta) are strictly positive).
+  fdivide <- function(num, den) {
+    de <- dp_factor_expand(den, num$vars, nbins)
+    list(vars = num$vars, dims = num$dims,
+         vals = num$vals / ifelse(de$vals > 0, de$vals, 1))
+  }
+
+  path <- path_between(host(a), host(b))
+  m <- length(path)
+  nextsep <- if (m >= 2L) sepvars(path[1L], path[2L]) else integer(0)
+  # Carried factor F holds P(a, current separator).
+  Ff <- dp_factor_marginalize(bel[[path[1L]]], sort(union(a, nextsep)), nbins)
+  if (m >= 2L) for (k in 2:m) {
+    ck <- path[k]; sp <- sepvars(path[k - 1L], ck)
+    cond <- fdivide(bel[[ck]], dp_factor_marginalize(bel[[ck]], sp, nbins))
+    Ff <- dp_factor_multiply(Ff, cond, nbins)          # -> P(a, vars(ck))
+    keep <- if (k < m) sort(union(a, sepvars(ck, path[k + 1L]))) else sort(c(a, b))
+    Ff <- dp_factor_marginalize(Ff, keep, nbins)
+  }
+  norm_f(dp_factor_marginalize(Ff, target, nbins))
+}
+
 # Reconcile a set of noisy measured marginals onto the clique structure of a
 # fitted junction / tree model. `cliques` is the fitter's ancestral clique list
 # (each list(vars, sep, new); the first has sep = integer(0)); `measurements` is

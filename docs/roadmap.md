@@ -310,10 +310,21 @@ engine; Track B is the opt-in differentially private engine.
       annealed set is triangulated and reconciled with Private-PGM as in the
       fixed-round case, so refinement sharpens loopy marginals. New internal
       `dp_fit_model_aim_anneal`; flat-table only.
-- Future: model-projection candidate scoring for `select = "aim"` (scoring each
-  candidate against the current reconciled model's projection rather than the
-  one-way-product reference); DP set-union for `character` category discovery under
-  `domain = "dp"`; and tagging a stable 0.1.0 for CRAN.
+- [x] **Model-projection candidate scoring** (`dp_control(select = "aim", scoring =
+      "model")`). Scores each candidate marginal in AIM's exponential-mechanism rounds
+      against the current reconciled Private-PGM model's own marginal over that pair,
+      rather than the one-way independence product (`scoring = "independence"`, the
+      default). This is AIM's actual quality function: a loopy pair the model already
+      explains through the measured-so-far marginals stops looking surprising, so the
+      budget goes to the genuinely worst-fit interaction. The reference is read from
+      the already-privatised marginals — reconciled each round and projected onto the
+      candidate (a not-yet-measured pair projects across cliques, via the new internal
+      `dp_pgm_project`) — so it is pure post-processing: the exponential mechanism's
+      sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta}) are identical to the
+      independence reference; only the selection changes. Composes with `anneal`;
+      flat-table only.
+- Future: DP set-union for `character` category discovery under `domain = "dp"`; and
+  tagging a stable 0.1.0 for CRAN.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

@@ -351,6 +351,26 @@ dp_aim_anneal <- dp_control(epsilon = 8, delta = 1e-6, mechanism = "gaussian",
 synth(real, ~ id, privacy = dp_aim_anneal, seed = 1)$privacy
 ```
 
+**Model-projection scoring (`scoring = "model"`).** By default Full AIM scores each
+candidate pair against the product of its one-way marginals (`scoring =
+"independence"`). AIM's actual quality function instead scores a candidate against the
+**current reconciled model's own marginal** over that pair, so a loopy pair the model
+already explains — through the marginals measured so far — no longer looks surprising,
+and the budget is steered to the genuinely worst-fit interaction. That reference is
+read from the already-privatised marginals (reconciled each round and projected onto
+the candidate, which for a not-yet-measured pair crosses cliques of the junction tree),
+so it is pure post-processing: the exponential mechanism's sensitivity and the exact
+\((\epsilon, \delta)\) are identical to the default — only which marginals get selected
+changes. It composes with `anneal = TRUE` and costs a reconciliation per selection
+round.
+
+```{r aim-model}
+dp_aim_model <- dp_control(epsilon = 8, delta = 1e-6, mechanism = "gaussian",
+                           select = "aim", treewidth = 2, scoring = "model",
+                           bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_aim_model, seed = 1)$privacy
+```
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

@@ -92,6 +92,38 @@ dp_triangulate <- function(d, edges) {
        width = max(vapply(cliques, length, integer(1))))
 }
 
+# Candidate-scoring reference for the AIM selector: the count array a candidate
+# pair is compared against when the exponential mechanism scores it. `scoring`
+# picks between the two references, both read only from already-privatised
+# quantities (so scoring stays pure post-processing -- the selection sensitivity
+# and the (eps, delta) are identical either way):
+#   "independence" -- the product of the two one-way marginals (n_est * p_i (x)
+#     p_j). Cheap and data-independent-given-the-noisy-one-ways, but it ignores any
+#     correlation the model already implies between i and j through other measured
+#     marginals, so a loopy pair looks maximally surprising even once the model
+#     explains it.
+#   "model" -- the current reconciled Private-PGM model's own marginal over the
+#     pair (n_est * project(i, j)). This is AIM's actual quality function: it stops
+#     re-selecting a pair the model already fits and steers the budget to the
+#     genuinely worst-fit interaction. Requires reconciling the measured-so-far set
+#     each round (post-processing) and projecting it onto the candidate pair, which
+#     for a not-yet-measured pair crosses cliques (see dp_pgm_project).
+# Returns a function(i, j) giving the reference count vector in sorted-pair order.
+dp_aim_reference <- function(scoring, d, nbins, idx_all, c1, p1, n_est,
+                             measured, edges) {
+  if (!identical(scoring, "model"))
+    return(function(i, j) as.vector(outer(p1[[i]], p1[[j]])) * n_est)
+  tri <- dp_triangulate(d, edges)
+  meas <- c(
+    lapply(idx_all, function(i) list(vars = i, y = pmax(c1[[i]], 0))),
+    lapply(measured, function(m) list(vars = m$vars, y = as.vector(m$array)))
+  )
+  opt <- dp_pgm_optimize(tri$cliques, tri$edges, meas, nbins, max_iter = 200L)
+  function(i, j)
+    dp_pgm_project(tri$cliques, tri$edges, opt$bel, sort(c(i, j)), nbins)$vals *
+      n_est
+}
+
 # Fit the Full AIM model. `calib` calibrates the measurement noise; `sel_eps` is
 # the per-round exponential-mechanism epsilon; `w` is the treewidth (max clique
 # size - 1) that bounds the triangulated model; `cap` is the per-person row cap
@@ -108,6 +140,7 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
   d <- length(codes)
   vars <- names(codes)
   idx_all <- seq_len(d)
+  scoring <- if (is.null(dp$scoring)) "independence" else dp$scoring
 
   # One-way marginals under the shared measurement noise (clipped for n_est).
   c1 <- lapply(idx_all, function(i) pmax(calib$add_noise(tabulate(codes[[i]], nbins[i])), 0))
@@ -117,13 +150,13 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
   base_np <- if (calib$mechanism == "laplace") calib$scale else calib$sigma
   noise_abs <- if (calib$mechanism == "laplace") calib$scale else calib$sigma * sqrt(2 / pi)
 
-  # True and reference (independence) counts for a candidate pair, in sorted
-  # order (first variable fastest) -- the same one-way-product reference the
-  # adaptive selector uses; the final PGM reconcile fits the whole set jointly.
-  score_pair <- function(i, j) {
+  # L1 gap between a candidate pair's true joint and a reference count array,
+  # minus a noise penalty. The reference is `ref_of(i, j)` -- either the one-way
+  # independence product or the current reconciled model's projection onto the
+  # pair (see dp_aim_reference); the final PGM reconcile fits the whole set jointly.
+  score_pair <- function(i, j, ref_of) {
     true_cnt <- as.vector(dp_true_joint_array(codes, c(i, j), nbins))
-    ref <- as.vector(outer(p1[[i]], p1[[j]])) * n_est
-    sum(abs(true_cnt - ref)) - length(true_cnt) * noise_abs
+    sum(abs(true_cnt - ref_of(i, j))) - length(true_cnt) * noise_abs
   }
   # Raw (unclipped) noisy joint count array of a pair, sorted-variable order, so
   # repeated measurements inverse-variance combine without clipping bias.
@@ -152,6 +185,10 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
 
   for (r in seq_len(n_rounds)) {
     have <- names(measured)
+    # Reference the candidates are scored against (independence product, or the
+    # model reconciled from the measured-so-far set -- refreshed each round).
+    ref_of <- dp_aim_reference(scoring, d, nbins, idx_all, c1, p1, n_est,
+                               measured, edges)
     # Candidate new pairs: not yet measured and keeping the model within cap.
     new_cand <- Filter(function(p) {
       k <- pair_key(p)
@@ -159,7 +196,8 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
     }, all_pairs)
 
     if (length(new_cand) > 0L) {
-      scores <- vapply(new_cand, function(p) score_pair(p[1L], p[2L]), numeric(1))
+      scores <- vapply(new_cand, function(p) score_pair(p[1L], p[2L], ref_of),
+                       numeric(1))
       pick <- new_cand[[dp_exp_select(scores, sel_eps, cap)]]
       i <- pick[1L]; j <- pick[2L]
       A <- measure_pair(i, j)
@@ -169,7 +207,7 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
       # Structurally saturated: re-measure the worst-fit existing pair.
       keys <- names(measured)
       scores <- vapply(keys, function(k) {
-        v <- measured[[k]]$vars; score_pair(v[1L], v[2L])
+        v <- measured[[k]]$vars; score_pair(v[1L], v[2L], ref_of)
       }, numeric(1))
       k <- keys[dp_exp_select(scores, sel_eps, cap)]
       v <- measured[[k]]$vars
@@ -219,6 +257,7 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
   vars <- names(codes)
   idx_all <- seq_len(d)
   gauss <- dp$mechanism == "gaussian"
+  scoring <- if (is.null(dp$scoring)) "independence" else dp$scoring
 
   # Budget quantum -> per-cell noise parameter, and per-round selection eps.
   noise_from   <- function(step) if (gauss) cap / sqrt(2 * step) else cap / step
@@ -258,12 +297,12 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
   pair_left <- pool_pair
   sel_left  <- pool_sel
 
-  # L1 gap between the true pair joint and the one-way-product reference (the same
-  # independence reference the fixed AIM selector uses), minus a noise penalty.
-  score_pair <- function(i, j, noise_abs) {
+  # L1 gap between the true pair joint and a reference count array (from `ref_of`:
+  # the independence product or the reconciled model's projection; see
+  # dp_aim_reference), minus a noise penalty.
+  score_pair <- function(i, j, noise_abs, ref_of) {
     true_cnt <- as.vector(dp_true_joint_array(codes, c(i, j), nbins))
-    ref <- as.vector(outer(p1[[i]], p1[[j]])) * n_est
-    sum(abs(true_cnt - ref)) - length(true_cnt) * noise_abs
+    sum(abs(true_cnt - ref_of(i, j))) - length(true_cnt) * noise_abs
   }
   # Raw (unclipped) noisy joint count array of a pair at noise parameter `np`, in
   # sorted-variable order, so repeated measurements combine without clipping bias.
@@ -298,6 +337,8 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
   saturated <- FALSE
   while (n_new < n_target && !saturated) {
     have <- names(measured)
+    ref_of <- dp_aim_reference(scoring, d, nbins, idx_all, c1, p1, n_est,
+                               measured, edges)
     new_cand <- Filter(function(p) {
       k <- pair_key(p)
       !(k %in% have) && tri_width_with(p) <= w + 1L
@@ -308,13 +349,15 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
     q_s <- min(q_sel,  sel_left  - max(remaining, 0L) * q_sel0)
     np_r <- noise_from(q_p); sel_e <- sel_eps_from(q_s); noise_abs <- mean_abs(np_r)
 
-    scores <- vapply(new_cand, function(p) score_pair(p[1L], p[2L], noise_abs),
+    scores <- vapply(new_cand,
+                     function(p) score_pair(p[1L], p[2L], noise_abs, ref_of),
                      numeric(1))
     pick <- new_cand[[dp_exp_select(scores, sel_e, cap)]]
     i <- pick[1L]; j <- pick[2L]
     A <- measure_pair(i, j, np_r)
-    ref <- as.vector(outer(p1[[i]], p1[[j]])) * n_est
-    signal_test(as.vector(A), ref, np_r)
+    # Signal test against the pair's prior estimate (the reference the selector
+    # scored it by): did the measurement beat its noise floor?
+    signal_test(as.vector(A), ref_of(i, j), np_r)
     measured[[pair_key(pick)]] <- list(vars = sort(c(i, j)), array = A, np = np_r)
     edges[[length(edges) + 1L]] <- sort(c(i, j))
     meas_rounds <- c(meas_rounds, q_p); sel_rounds <- c(sel_rounds, q_s)
@@ -335,9 +378,11 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
     q_s <- min(q_s, sel_left)
     np_r <- noise_from(q_p); sel_e <- sel_eps_from(q_s); noise_abs <- mean_abs(np_r)
 
+    ref_of <- dp_aim_reference(scoring, d, nbins, idx_all, c1, p1, n_est,
+                               measured, edges)
     keys <- names(measured)
     scores <- vapply(keys, function(k) {
-      v <- measured[[k]]$vars; score_pair(v[1L], v[2L], noise_abs)
+      v <- measured[[k]]$vars; score_pair(v[1L], v[2L], noise_abs, ref_of)
     }, numeric(1))
     k <- keys[dp_exp_select(scores, sel_e, cap)]
     v <- measured[[k]]$vars
@@ -372,7 +417,7 @@ dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
                n_rounds = length(sel_rounds), n_refine = n_refine,
                n_anneal_steps = n_anneal_steps,
                noise_min = min(noise_params), noise_max = max(noise_params),
-               select_frac = dp$select_frac)
+               select_frac = dp$select_frac, scoring = scoring)
   if (gauss) {
     info$rho_meas_rounds <- meas_rounds
     info$rho_sel_rounds  <- sel_rounds

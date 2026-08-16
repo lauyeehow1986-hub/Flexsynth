@@ -282,6 +282,9 @@ print.dp_accounting <- function(x, ...) {
     cat("  estimator : Private-PGM reconciliation over the triangulated model\n")
     cat("              (belief propagation + mirror descent; post-processing,",
         "no extra budget)\n")
+    if (identical(am$scoring, "model"))
+      cat("  scoring   : model-projection (candidates scored against the",
+          "reconciled model; post-processing)\n")
   }
   if (identical(x$estimator, "pgm")) {
     cat("  estimator : Private-PGM reconciliation of the measured marginals\n")

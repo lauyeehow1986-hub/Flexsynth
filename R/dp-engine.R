@@ -467,6 +467,9 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   } else if (pgm_tree) {
     dp_fit_model_pgm(codes, nbins, dp, calib)
   } else dp_fit_model(codes, nbins, dp, calib, calib_struct)
+  # Record which candidate-scoring reference Full AIM used (post-processing; no
+  # budget effect). The annealed fitter already stamps it; set it for both paths.
+  if (aim) aim_info$scoring <- dp$scoring
   # The annealed path measures a data-adaptive number of histograms (d one-ways +
   # the realised clique rounds); report that actual count.
   n_marg_report <- if (adaptive && isTRUE(dp$anneal))

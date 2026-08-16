@@ -202,6 +202,24 @@
 #'   for `"local"`. `select = "aim"` always reconciles with Private-PGM by
 #'   construction (a loopy marginal set has no local sampler), so `estimator` is
 #'   moot there.
+#' @param scoring How `select = "aim"` scores each candidate marginal in its
+#'   exponential-mechanism rounds. `"independence"` (default) scores a pair by how
+#'   far its true joint sits from the **product of its one-way marginals** — the
+#'   cheap reference every existing path uses. `"model"` opts into AIM's actual
+#'   quality function: each candidate is scored against the **current reconciled
+#'   Private-PGM model's own marginal** over that pair, so a loopy pair the model
+#'   already explains (through the marginals measured so far) no longer looks
+#'   surprising and the budget is steered to the genuinely worst-fit interaction.
+#'   The model reference is read from the already-privatised marginals — reconciled
+#'   each round and projected onto the candidate (a not-yet-measured pair projects
+#'   across cliques of the junction tree) — so it is **pure post-processing**: the
+#'   exponential mechanism's sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta})
+#'   are **identical** to `"independence"`; only which marginals get selected
+#'   changes. It costs extra computation (a reconciliation per selection round).
+#'   Composes with `anneal`. Requires `select = "aim"` (an error otherwise); the
+#'   adaptive selector's candidates always introduce a fresh variable, so its model
+#'   projection reduces to the independence product anyway. Ignored (no-op) for
+#'   `"independence"`.
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -345,6 +363,7 @@ dp_control <- function(epsilon,
                        select_frac = 0.25,
                        anneal = FALSE,
                        estimator = c("local", "pgm"),
+                       scoring = c("independence", "model"),
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        baseline = NULL,
@@ -360,6 +379,7 @@ dp_control <- function(epsilon,
   dependence <- match.arg(dependence)
   select <- match.arg(select)
   estimator <- match.arg(estimator)
+  scoring <- match.arg(scoring)
   domain <- match.arg(domain)
 
   if (missing(epsilon) || !is.numeric(epsilon) || length(epsilon) != 1L ||
@@ -478,6 +498,15 @@ dp_control <- function(epsilon,
                   "independent model)."), call. = FALSE)
     }
   }
+  # Model-projection candidate scoring is defined only for Full AIM: it scores each
+  # candidate against the current reconciled Private-PGM model, which only the aim
+  # selector builds. (The adaptive selector's candidates always introduce a fresh
+  # variable, so its model projection reduces to the independence product anyway.)
+  if (scoring == "model" && select != "aim") {
+    stop(paste0("`scoring = \"model\"` (model-projection candidate scoring) needs ",
+                "`select = \"aim\"`: it scores candidates against the reconciled ",
+                "AIM model, which only Full AIM builds."), call. = FALSE)
+  }
   if (!is.logical(cross_table) || length(cross_table) != 1L ||
       is.na(cross_table)) {
     stop("`cross_table` must be a single TRUE or FALSE.", call. = FALSE)
@@ -579,6 +608,7 @@ dp_control <- function(epsilon,
       select_frac = select_frac,                # number in (0, 1) (adaptive only)
       anneal = anneal,                          # logical (adaptive only)
       estimator = estimator,                    # "local" or "pgm" (reconcile)
+      scoring = scoring,                        # "independence" or "model" (aim)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
       baseline = baseline,                        # NULL or character column names
@@ -613,12 +643,16 @@ print.dp_control <- function(x, ...) {
         if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
         else " (", signif(x$select_frac, 3), " of budget selects marginals)\n",
         sep = "")
-  if (identical(x$select, "aim"))
+  if (identical(x$select, "aim")) {
     cat("  select    : Full AIM (loopy marginals + Private-PGM), treewidth ",
         x$treewidth,
         if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
         else " (", signif(x$select_frac, 3),
         " of budget selects marginals)\n", sep = "")
+    if (identical(x$scoring, "model"))
+      cat("  scoring   : model-projection (candidates scored against the",
+          "reconciled model)\n")
+  }
   if (identical(x$estimator, "pgm"))
     cat("  estimator : Private-PGM reconciliation",
         "(belief propagation + mirror descent; budget-neutral)\n")

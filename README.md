@@ -204,7 +204,17 @@ reconciliation is budget-neutral. Adding `anneal = TRUE` to `select = "aim"` run
 on the same data-adaptive σ-halving schedule as the adaptive selector — a baseline of
 treewidth-capped new loopy pairs, then surplus budget re-measuring the worst-fit
 measured pair, all still triangulated and reconciled with Private-PGM and composing to
-the exact same (ε, δ) over a variable round count. See
+the exact same (ε, δ) over a variable round count. Finally,
+`dp_control(select = "aim", scoring = "model")` completes AIM's actual quality
+function: each candidate marginal is scored against the current reconciled model's own
+marginal over that pair rather than the one-way independence product, so a loopy pair
+the model already explains (through the marginals measured so far) stops looking
+surprising and the budget is steered to the genuinely worst-fit interaction. The model
+reference is read from the already-privatised marginals — reconciled each round and
+projected onto the candidate, which for a not-yet-measured pair crosses cliques of the
+junction tree — so it is pure post-processing: the exponential mechanism's sensitivity
+and the exact (ε, δ) are identical to the default independence reference; only which
+marginals get selected changes. See
 `vignette("differential-privacy")` for scope and the honest utility trade-off.
 
 ## Learn more
