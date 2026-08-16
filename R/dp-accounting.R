@@ -109,7 +109,8 @@ rlaplace <- function(n, scale) {
 new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
                               domain = list(mode = dp$domain, vars = character(0),
                                             eps_per_query = NA_real_, frac = 0),
-                              longitudinal = NULL, linked = NULL, learn = NULL) {
+                              longitudinal = NULL, linked = NULL, learn = NULL,
+                              adaptive = NULL) {
   structure(
     list(
       epsilon = dp$epsilon,
@@ -126,7 +127,8 @@ new_dp_accounting <- function(dp, calib, cap, n_marginals, variables, dropped,
       domain = domain,
       longitudinal = longitudinal,
       linked = linked,
-      learn = learn
+      learn = learn,
+      adaptive = adaptive
     ),
     class = "dp_accounting"
   )
@@ -140,7 +142,10 @@ print.dp_accounting <- function(x, ...) {
       ")-DP,", x$unit, "level\n")
   cat("  mechanism :", x$mechanism,
       if (x$mechanism == "gaussian") paste0("(rho = ", signif(x$rho, 3), " zCDP)") else "", "\n")
-  cat("  model     :", x$dependence, "over", length(x$variables), "variables",
+  model_kind <- if (!is.null(x$adaptive))
+    paste0("adaptive junction tree (treewidth ", x$adaptive$treewidth, ")")
+    else x$dependence
+  cat("  model     :", model_kind, "over", length(x$variables), "variables",
       if (!is.null(x$longitudinal)) "(DP Markov: initial-state + transitions)"
       else if (!is.null(x$linked)) paste0("(linked: ", x$linked$n_tables, " tables)")
       else "",
@@ -149,7 +154,12 @@ print.dp_accounting <- function(x, ...) {
     cat("  histograms:", x$n_marginals,
         "(per-table variable marginals + child count models, composed budget)\n")
   } else if (is.null(x$longitudinal)) {
-    if (!is.null(x$learn)) {
+    if (!is.null(x$adaptive)) {
+      ad <- x$adaptive
+      cat("  marginals :", x$n_marginals,
+          paste0("(", length(x$variables), " one-way + ", ad$n_cliques,
+                 " adaptively selected cliques, composed budget)\n"))
+    } else if (!is.null(x$learn)) {
       lr <- x$learn
       cat("  marginals :", x$n_marginals,
           paste0("(", lr$n_struct, " pairwise scans + ", lr$n_param,
@@ -192,6 +202,12 @@ print.dp_accounting <- function(x, ...) {
         "of budget selects the tree;",
         if (x$mechanism == "laplace") "scan Laplace scale" else "scan Gaussian sd",
         signif(lr$struct_noise, 4), "per cell\n")
+  }
+  if (!is.null(x$adaptive)) {
+    ad <- x$adaptive
+    cat("  selection : adaptive (AIM-style),", signif(ad$select_frac, 3),
+        "of budget over", ad$n_cliques, "exponential-mechanism round(s);",
+        "per-round eps", signif(ad$select_eps, 4), "\n")
   }
   if (!is.null(x$linked)) {
     for (ti in x$linked$tables) {

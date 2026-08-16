@@ -216,10 +216,25 @@ engine; Track B is the opt-in differentially private engine.
   measures, so it adds no histogram and no sensitivity (a tuple still lands in one
   cell) — hence it **requires** `cross_table = TRUE` for that child. Composes with
   baseline / `transition_order` / `transition_cross`.
-- Future: PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection.
-  (Data-independent / DP-estimated bin edges are done; see the post-Phase-8 item
-  below.)
+- [x] **AIM-style adaptive marginal selection** (`dp_control(select = "adaptive",
+  treewidth = w)`, flat `synth()` release). Instead of measuring a predetermined
+  marginal set, the model is grown one marginal at a time: after the one-way
+  marginals, each round uses the **exponential mechanism** to privately pick the
+  clique whose true marginal the model-so-far fits worst, then measures it. The
+  chosen cliques form a bounded-treewidth junction tree by construction, so the
+  generative model is a rooted junction-tree sampler (no PGM/IPF inference needed)
+  — at `treewidth = 1` a spanning tree, at `treewidth = 2` triangles that hold
+  three-way interactions a Chow-Liu tree structurally cannot. Selection and
+  measurement each spend budget and compose exactly into the same
+  (\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure \eqn{\epsilon} for
+  Laplace); the round count (`d - treewidth`) is fixed in advance, so the
+  accounting is data-independent. `select_frac` splits the marginal budget between
+  selection and measurement. Flat-table only for now (refused on longitudinal /
+  linked releases); `treewidth` shipped for 1 and 2. Defaults
+  `select = "fixed"` leave every existing path unchanged.
+- Future: PrivBayes greedy degree>1 networks; adaptive **budget annealing** (a
+  data-adaptive round schedule) and `treewidth >= 3` on top of the adaptive
+  selector above.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

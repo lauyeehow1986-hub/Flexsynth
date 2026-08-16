@@ -12,6 +12,9 @@ dp_control(
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
   structure_frac = NULL,
+  select = c("fixed", "adaptive"),
+  treewidth = 1L,
+  select_frac = 0.25,
   cross_table = FALSE,
   longitudinal = FALSE,
   baseline = NULL,
@@ -68,6 +71,44 @@ of variables grows. Both passes compose into the same exact
 (\eqn{\epsilon}, \eqn{\delta}) budget. Inert for \code{dependence = "independent"},
 for fewer than three variables (the tree is then trivial), and for
 longitudinal / linked DP releases (which keep the single-pass fitter).}
+
+\item{select}{How the marginals that make up the model are chosen, for a flat
+\code{\link[=synth]{synth()}} release. \code{"fixed"} (default) measures a predetermined set (all
+one-way marginals, plus — for \code{dependence = "tree"} — pairwise marginals),
+exactly as described above; every existing path is unchanged. \code{"adaptive"}
+opts into an \strong{AIM-style} iterative selector: after measuring the one-way
+marginals it builds the dependency model one marginal at a time, at each step
+using the \strong{exponential mechanism} to privately pick the marginal whose true
+value the model-so-far fits worst, then measuring that marginal under the main
+mechanism. Selection and measurement each spend budget and compose exactly
+into the same (\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure
+\eqn{\epsilon} for Laplace); the number of rounds is fixed in advance from the
+variable count and \code{treewidth}, so the accounting is data-independent. Unlike
+\code{structure_frac} (which picks a tree from one free noisy scan), adaptive
+selection is model-error-guided \emph{and} — at \code{treewidth >= 2} — can measure
+marginals that form loops, capturing higher-order interactions a Chow-Liu tree
+structurally cannot. Ignores \code{dependence} and \code{structure_frac} (supply
+\code{treewidth} / \code{select_frac} instead — setting \code{structure_frac} alongside is an
+error). Currently \strong{flat-table only}: \code{"adaptive"} on a longitudinal or
+linked structure is refused.}
+
+\item{treewidth}{Adaptive selection only. Maximum clique size minus one in the
+junction-tree model — the ceiling on interaction order the model can hold.
+\code{1} (default) builds a tree (each measured marginal is a pair; equivalent
+\emph{model class} to \code{dependence = "tree"}, but selected adaptively). \code{2} lets the
+selector measure three-way marginals whose variables form triangles, so
+pairwise-invisible three-way structure survives. Higher clique orders cost
+more per cell (a \code{(w+1)}-way histogram is sparser at the same noise), so raise
+it only when three-way interactions matter. Values above \code{2} are not yet
+supported. Ignored unless \code{select = "adaptive"}.}
+
+\item{select_frac}{Adaptive selection only. Fraction of the marginal budget
+spent on the private \strong{selection} (the exponential-mechanism rounds); the
+remaining \code{1 - select_frac} is spent \strong{measuring} the chosen marginals (and
+the one-way marginals). Default \code{0.25}. Selection tolerates noise well, so a
+modest slice usually gives the best fidelity (the same intuition as
+\code{structure_frac}); both slices compose into the same exact
+(\eqn{\epsilon}, \eqn{\delta}). Ignored unless \code{select = "adaptive"}.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

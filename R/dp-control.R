@@ -78,6 +78,41 @@
 #'   (\eqn{\epsilon}, \eqn{\delta}) budget. Inert for `dependence = "independent"`,
 #'   for fewer than three variables (the tree is then trivial), and for
 #'   longitudinal / linked DP releases (which keep the single-pass fitter).
+#' @param select How the marginals that make up the model are chosen, for a flat
+#'   [synth()] release. `"fixed"` (default) measures a predetermined set (all
+#'   one-way marginals, plus — for `dependence = "tree"` — pairwise marginals),
+#'   exactly as described above; every existing path is unchanged. `"adaptive"`
+#'   opts into an **AIM-style** iterative selector: after measuring the one-way
+#'   marginals it builds the dependency model one marginal at a time, at each step
+#'   using the **exponential mechanism** to privately pick the marginal whose true
+#'   value the model-so-far fits worst, then measuring that marginal under the main
+#'   mechanism. Selection and measurement each spend budget and compose exactly
+#'   into the same (\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure
+#'   \eqn{\epsilon} for Laplace); the number of rounds is fixed in advance from the
+#'   variable count and `treewidth`, so the accounting is data-independent. Unlike
+#'   `structure_frac` (which picks a tree from one free noisy scan), adaptive
+#'   selection is model-error-guided *and* — at `treewidth >= 2` — can measure
+#'   marginals that form loops, capturing higher-order interactions a Chow-Liu tree
+#'   structurally cannot. Ignores `dependence` and `structure_frac` (supply
+#'   `treewidth` / `select_frac` instead — setting `structure_frac` alongside is an
+#'   error). Currently **flat-table only**: `"adaptive"` on a longitudinal or
+#'   linked structure is refused.
+#' @param treewidth Adaptive selection only. Maximum clique size minus one in the
+#'   junction-tree model — the ceiling on interaction order the model can hold.
+#'   `1` (default) builds a tree (each measured marginal is a pair; equivalent
+#'   *model class* to `dependence = "tree"`, but selected adaptively). `2` lets the
+#'   selector measure three-way marginals whose variables form triangles, so
+#'   pairwise-invisible three-way structure survives. Higher clique orders cost
+#'   more per cell (a `(w+1)`-way histogram is sparser at the same noise), so raise
+#'   it only when three-way interactions matter. Values above `2` are not yet
+#'   supported. Ignored unless `select = "adaptive"`.
+#' @param select_frac Adaptive selection only. Fraction of the marginal budget
+#'   spent on the private **selection** (the exponential-mechanism rounds); the
+#'   remaining `1 - select_frac` is spent **measuring** the chosen marginals (and
+#'   the one-way marginals). Default `0.25`. Selection tolerates noise well, so a
+#'   modest slice usually gives the best fidelity (the same intuition as
+#'   `structure_frac`); both slices compose into the same exact
+#'   (\eqn{\epsilon}, \eqn{\delta}). Ignored unless `select = "adaptive"`.
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -215,6 +250,9 @@ dp_control <- function(epsilon,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
                        structure_frac = NULL,
+                       select = c("fixed", "adaptive"),
+                       treewidth = 1L,
+                       select_frac = 0.25,
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        baseline = NULL,
@@ -228,6 +266,7 @@ dp_control <- function(epsilon,
   unit <- match.arg(unit)
   mechanism <- match.arg(mechanism)
   dependence <- match.arg(dependence)
+  select <- match.arg(select)
   domain <- match.arg(domain)
 
   if (missing(epsilon) || !is.numeric(epsilon) || length(epsilon) != 1L ||
@@ -270,6 +309,28 @@ dp_control <- function(epsilon,
            call. = FALSE)
     }
     structure_frac <- as.numeric(structure_frac)
+  }
+  if (!is.numeric(treewidth) || length(treewidth) != 1L || is.na(treewidth) ||
+      treewidth < 1 || treewidth != as.integer(treewidth)) {
+    stop("`treewidth` must be a single integer >= 1.", call. = FALSE)
+  }
+  treewidth <- as.integer(treewidth)
+  if (!is.numeric(select_frac) || length(select_frac) != 1L ||
+      is.na(select_frac) || select_frac <= 0 || select_frac >= 1) {
+    stop("`select_frac` must be a single number in (0, 1).", call. = FALSE)
+  }
+  select_frac <- as.numeric(select_frac)
+  if (select == "adaptive") {
+    if (treewidth > 2L) {
+      stop(paste0("`treewidth` > 2 is not yet supported for adaptive selection; ",
+                  "use treewidth = 1 (tree) or 2 (three-way cliques)."),
+           call. = FALSE)
+    }
+    if (!is.null(structure_frac)) {
+      stop(paste0("`structure_frac` applies to the fixed tree fitter; adaptive ",
+                  "selection uses `select_frac` (and `treewidth`) instead - set ",
+                  "structure_frac = NULL."), call. = FALSE)
+    }
   }
   if (!is.logical(cross_table) || length(cross_table) != 1L ||
       is.na(cross_table)) {
@@ -346,6 +407,9 @@ dp_control <- function(epsilon,
       mechanism = mechanism,
       dependence = dependence,
       structure_frac = structure_frac,          # NULL or number in (0, 1)
+      select = select,                          # "fixed" or "adaptive"
+      treewidth = treewidth,                    # integer >= 1 (adaptive only)
+      select_frac = select_frac,                # number in (0, 1) (adaptive only)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
       baseline = baseline,                        # NULL or character column names
@@ -372,6 +436,9 @@ print.dp_control <- function(x, ...) {
   if (!is.null(x$structure_frac))
     cat("  structure : budget-efficient (", signif(x$structure_frac, 3),
         " of budget selects the tree)\n", sep = "")
+  if (identical(x$select, "adaptive"))
+    cat("  select    : adaptive AIM-style, treewidth ", x$treewidth, " (",
+        signif(x$select_frac, 3), " of budget selects marginals)\n", sep = "")
   if (isTRUE(x$cross_table))
     cat("  cross-table: parent-conditioned child vars (linked DP)\n")
   if (isTRUE(x$longitudinal))

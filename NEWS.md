@@ -1,5 +1,23 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: AIM-style adaptive marginal selection.** New
+  `dp_control(select = "adaptive", treewidth = w)` opts a flat `synth()` DP
+  release out of measuring a predetermined marginal set. After the one-way
+  marginals it grows the dependency model one marginal at a time, at each round
+  using the **exponential mechanism** to privately pick the marginal the
+  model-so-far fits worst, then measuring it. The selected cliques form a
+  bounded-treewidth junction tree by construction, so the model is a rooted
+  junction-tree sampler (no PGM/IPF inference): `treewidth = 1` is a spanning tree
+  (equivalent model class to `dependence = "tree"`), `treewidth = 2` measures
+  three-way marginals that capture interactions a Chow-Liu tree structurally
+  cannot. Selection and measurement each spend budget and compose exactly into the
+  same (\eqn{\epsilon}, \eqn{\delta}) — zCDP for Gaussian, pure \eqn{\epsilon} for
+  Laplace — with a data-independent round count (`d - treewidth`); `select_frac`
+  splits the marginal budget between the two. Unlike `structure_frac` (which picks
+  a tree from one free noisy scan), adaptive selection is model-error-guided and,
+  at `treewidth >= 2`, escapes the tree's expressiveness ceiling. Flat-table only
+  (refused on longitudinal / linked releases); `treewidth` shipped for 1 and 2.
+  The default `select = "fixed"` leaves every existing path unchanged.
 * **Track B: a linked longitudinal child's transitions can now condition on the
   parent.** New `dp_control(transition_parent = p)` re-injects the synthetic
   parent's (subject-invariant) attributes into a longitudinally-modelled child's

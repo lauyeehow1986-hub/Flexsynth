@@ -187,6 +187,38 @@ The accounting line splits into the pairwise scans and the parameter marginals,
 and the per-cell noise is reported separately for each — the scan is noisier (it
 only has to rank dependencies), the parameters sharper.
 
+**Adaptive marginal selection (AIM-style).** `structure_frac` still measures a
+*fixed* menu of marginals (all pairs) and then discards most; it also cannot
+escape the tree — every dependency is squeezed onto \(d-1\) edges. `select =
+"adaptive"` takes the next step: after the one-way marginals it grows the model
+one marginal at a time, each round using the **exponential mechanism** to
+privately pick the marginal the model-so-far fits worst, then measuring that one.
+Selection spends budget too (it reads the true data to score candidates), so it
+and the measurements compose into the *same* exact \((\epsilon, \delta)\);
+`select_frac` sets the split, and the round count is fixed in advance so the
+accounting stays data-independent.
+
+The real payoff is `treewidth`. At `treewidth = 1` the selected marginals form a
+spanning tree (the same *model class* as `dependence = "tree"`, just chosen
+adaptively). At `treewidth = 2` they form **triangles**, so the model can hold a
+genuine three-way interaction — the kind where a variable depends on a *pair* of
+others while looking independent of each one alone, which no tree (and so no
+amount of `structure_frac`) can represent:
+
+```{r adaptive}
+dp_aim <- dp_control(epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+                     select = "adaptive", treewidth = 2,
+                     bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_aim, seed = 1)$privacy
+```
+
+The accounting names the model an *adaptive junction tree* of the chosen
+treewidth, splits the histogram count into one-ways plus adaptively selected
+cliques, and reports the selection slice (how much budget, over how many
+exponential-mechanism rounds) separately from the measurement noise. Adaptive
+selection is **flat-table only** for now — it is refused on a longitudinal or
+linked release — and `treewidth` is supported for 1 and 2.
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

@@ -159,7 +159,14 @@ every longitudinally-modelled linked child. For a
 flat tree release, `dp_control(structure_frac = f)` learns the Chow-Liu structure
 from a cheap all-pairs scan (a fraction `f` of the budget) and concentrates the
 rest on re-measuring only the chosen edges — sharper conditionals at the same
-exact budget, more so the more variables there are. See
+exact budget, more so the more variables there are. Going further,
+`dp_control(select = "adaptive", treewidth = w)` replaces the fixed marginal set
+with an **AIM-style** selector: it grows the model one marginal at a time, each
+round using the exponential mechanism to privately pick the marginal the
+model-so-far fits worst, then measuring it (both spends compose into the same
+exact budget). At `treewidth = 2` the selected cliques are triangles, so it
+captures three-way interactions a tree structurally cannot — the payoff a
+tree-only method, `structure_frac` included, cannot reach at any budget. See
 `vignette("differential-privacy")` for scope and the honest utility trade-off.
 
 ## Learn more

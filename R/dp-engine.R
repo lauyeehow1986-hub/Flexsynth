@@ -144,6 +144,7 @@ dp_fit_model <- function(codes, nbins, dp, calib, calib_struct = NULL) {
 
 # Draw one synthetic dataset of `n` rows (matrix of cell codes, n x d).
 dp_sample_codes <- function(model, n) {
+  if (identical(model$kind, "junction")) return(dp_sample_codes_junction(model, n))
   d <- length(model$vars)
   out <- matrix(NA_integer_, n, d, dimnames = list(NULL, model$vars))
   if (model$kind == "independent" || d <= 1L) {
@@ -179,6 +180,11 @@ dp_decode_frame <- function(codes, dom) {
 # engine preserves within-unit temporal structure (see dp-longitudinal.R);
 # otherwise this produces a flat marginal release.
 synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
+  if (identical(dp$select, "adaptive") && length(st$nested) > 0L) {
+    stop(paste0("select = \"adaptive\" (AIM-style) is currently flat-table only; ",
+                "this structure is longitudinal. Use the default select = \"fixed\" ",
+                "for a longitudinal DP release."), call. = FALSE)
+  }
   if (length(st$nested) > 0L) {
     return(synth_dp_longitudinal(data, st, structure, dp, tuning, m, seed))
   }
@@ -217,12 +223,21 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   }
 
   d <- length(vars)
-  n_pairs <- if (dp$dependence == "tree" && d > 1L) d * (d - 1L) / 2L else 0L
+  # AIM-style adaptive selection: measure d one-ways, then greedily select
+  # `d - treewidth` cliques by the exponential mechanism (see dp-adaptive.R).
+  # Needs at least two variables; the treewidth is capped to d - 1.
+  adaptive <- identical(dp$select, "adaptive") && d >= 2L
+  w_eff <- if (adaptive) min(dp$treewidth, d - 1L) else NA_integer_
+  n_cliques <- if (adaptive) d - w_eff else 0L
+  n_pairs <- if (!adaptive && dp$dependence == "tree" && d > 1L)
+    d * (d - 1L) / 2L else 0L
   # Budget-efficient structure learning: a separate cheap pairwise scan selects
   # the tree, then only its d-1 edges (plus d one-ways) are re-measured. Trivial
   # for < 3 variables, so it is inert there (and for the independent model).
-  use_learn <- !is.null(dp$structure_frac) && dp$dependence == "tree" && d >= 3L
-  n_marginals <- if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
+  use_learn <- !adaptive && !is.null(dp$structure_frac) &&
+    dp$dependence == "tree" && d >= 3L
+  n_marginals <- if (adaptive) d + n_cliques
+    else if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
 
   # Under domain = "dp", privately estimate bin edges for numeric variables that
   # have no public bounds, spending an accounted `domain_frac` slice of budget.
@@ -247,7 +262,21 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   # slices compose exactly into the same (eps, delta) as the domain slice: pure
   # eps adds; zCDP rho adds.
   learn_info <- NULL
-  if (use_learn) {
+  adapt_info <- NULL
+  if (adaptive) {
+    # Marginal budget splits into a selection slice (the exponential-mechanism
+    # rounds) and a measurement slice (the d one-ways + d - w cliques); both
+    # compose exactly into the same (eps, delta) as the domain slice.
+    sel_frac <- dp$select_frac
+    calib_struct <- NULL
+    calib <- dp_calibrate(dp, n_marginals, cap,
+                          budget_frac = marg_frac * (1 - sel_frac))
+    sel_eps <- dp_select_eps(dp, n_cliques, marg_frac * sel_frac)
+    adapt_info <- list(treewidth = w_eff, n_cliques = n_cliques,
+                       select_frac = sel_frac, select_eps = sel_eps,
+                       meas_noise = if (calib$mechanism == "laplace")
+                         calib$scale else calib$sigma)
+  } else if (use_learn) {
     n_struct <- n_pairs
     n_param  <- 2L * d - 1L
     calib_struct <- dp_calibrate(dp, n_struct, cap,
@@ -268,7 +297,9 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   codes <- stats::setNames(
     lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
 
-  model <- dp_fit_model(codes, nbins, dp, calib, calib_struct)
+  model <- if (adaptive)
+    dp_fit_model_adaptive(codes, nbins, dp, calib, w_eff, adapt_info$select_eps, cap)
+  else dp_fit_model(codes, nbins, dp, calib, calib_struct)
   n_syn <- if (!is.null(tuning$k)) max(1L, as.integer(round(tuning$k)))
            else model$n_est
 
@@ -281,7 +312,7 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   syn <- if (m == 1L) syns[[1L]] else syns
 
   acct <- new_dp_accounting(dp, calib, cap, n_marginals, vars, bounded$dropped,
-                            domain_info, learn = learn_info)
+                            domain_info, learn = learn_info, adaptive = adapt_info)
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),

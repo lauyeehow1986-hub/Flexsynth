@@ -193,6 +193,11 @@ dp_draw_counts <- function(prob, n_units) {
 # link_hierarchy()); `dp` a dp_control(); `m` the number of synthetic databases.
 synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
   if (!is.null(seed)) set.seed(seed)
+  if (identical(dp$select, "adaptive")) {
+    stop(paste0("select = \"adaptive\" (AIM-style) is currently flat-table only ",
+                "and is not supported for a linked DP release. Use the default ",
+                "select = \"fixed\"."), call. = FALSE)
+  }
   if (dp$unit == "row") {
     stop(paste0("linked DP: unit = \"row\" is not supported; the privacy unit ",
                 "of a linked release is the root entity. Use unit = \"person\"."),
