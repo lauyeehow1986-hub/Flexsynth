@@ -156,9 +156,16 @@ print.dp_accounting <- function(x, ...) {
   } else if (is.null(x$longitudinal)) {
     if (!is.null(x$adaptive)) {
       ad <- x$adaptive
-      cat("  marginals :", x$n_marginals,
-          paste0("(", length(x$variables), " one-way + ", ad$n_cliques,
-                 " adaptively selected cliques, composed budget)\n"))
+      if (isTRUE(ad$anneal)) {
+        cat("  marginals :", x$n_marginals,
+            paste0("(", length(x$variables), " one-way + ", ad$n_cliques,
+                   " spanning + ", ad$n_refine,
+                   " refinement clique(s), composed budget)\n"))
+      } else {
+        cat("  marginals :", x$n_marginals,
+            paste0("(", length(x$variables), " one-way + ", ad$n_cliques,
+                   " adaptively selected cliques, composed budget)\n"))
+      }
     } else if (!is.null(x$learn)) {
       lr <- x$learn
       cat("  marginals :", x$n_marginals,
@@ -192,10 +199,18 @@ print.dp_accounting <- function(x, ...) {
       }
     }
   }
-  cat("  noise     :",
-      if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
-      signif(x$noise, 4), "per cell",
-      if (!is.null(x$learn)) "(parameters)" else "", "\n")
+  if (!is.null(x$adaptive) && isTRUE(x$adaptive$anneal)) {
+    ad <- x$adaptive
+    cat("  noise     :",
+        if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
+        signif(ad$noise_min, 4), "-", signif(ad$noise_max, 4),
+        "per cell (annealed range)\n")
+  } else {
+    cat("  noise     :",
+        if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
+        signif(x$noise, 4), "per cell",
+        if (!is.null(x$learn)) "(parameters)" else "", "\n")
+  }
   if (!is.null(x$learn)) {
     lr <- x$learn
     cat("  structure : budget-efficient,", signif(lr$frac, 3),
@@ -205,9 +220,17 @@ print.dp_accounting <- function(x, ...) {
   }
   if (!is.null(x$adaptive)) {
     ad <- x$adaptive
-    cat("  selection : adaptive (AIM-style),", signif(ad$select_frac, 3),
-        "of budget over", ad$n_cliques, "exponential-mechanism round(s);",
-        "per-round eps", signif(ad$select_eps, 4), "\n")
+    if (isTRUE(ad$anneal)) {
+      cat("  selection : annealed (AIM-style),", signif(ad$select_frac, 3),
+          "of budget;", ad$n_rounds, "round(s) =", ad$n_cliques, "spanning +",
+          ad$n_refine, "refinement;",
+          if (x$mechanism == "laplace") "noise halved" else "sigma halved",
+          paste0(ad$n_anneal_steps, "x"), "\n")
+    } else {
+      cat("  selection : adaptive (AIM-style),", signif(ad$select_frac, 3),
+          "of budget over", ad$n_cliques, "exponential-mechanism round(s);",
+          "per-round eps", signif(ad$select_eps, 4), "\n")
+    }
   }
   if (!is.null(x$linked)) {
     for (ti in x$linked$tables) {

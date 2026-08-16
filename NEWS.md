@@ -1,5 +1,24 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: AIM-style budget annealing and higher treewidth for adaptive
+  selection.** `dp_control(select = "adaptive")` gains `anneal = TRUE`, a
+  data-adaptive round schedule in place of the fixed `d - treewidth` rounds. The
+  one-way marginals take a fair fixed share; the clique measurements and their
+  exponential-mechanism selections start at a small per-round quantum (large
+  noise) and **double** whenever a round's measured signal fails to beat its noise
+  floor (AIM's \eqn{\sigma}-halving rule). After the mandatory `d - treewidth`
+  spanning cliques (which keep every variable covered, so the sampler stays
+  PGM-free) any **surplus** budget is spent on extra rounds that re-measure the
+  worst-fit existing clique — inverse-variance combined, so \eqn{\rho} /
+  \eqn{\epsilon} adds exactly. The final round absorbs the exact remainder, so the
+  release is still exactly (\eqn{\epsilon}, \eqn{\delta}) over a **variable**
+  number of rounds. The accounting reports the realised schedule (rounds, spanning
+  vs refinement, how often \eqn{\sigma} halved, and the noise range). The
+  `treewidth` cap is also lifted: `treewidth = 3` now measures four-way cliques
+  (interactions no three-way marginal can see, e.g. a 3-bit parity), with a
+  warning when a clique's cell count (`bins^(treewidth + 1)`) grows large enough
+  that per-cell noise would dominate. `anneal = FALSE` (default) leaves the
+  fixed-schedule adaptive path byte-identical.
 * **Track B: AIM-style adaptive marginal selection.** New
   `dp_control(select = "adaptive", treewidth = w)` opts a flat `synth()` DP
   release out of measuring a predetermined marginal set. After the one-way

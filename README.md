@@ -166,8 +166,14 @@ round using the exponential mechanism to privately pick the marginal the
 model-so-far fits worst, then measuring it (both spends compose into the same
 exact budget). At `treewidth = 2` the selected cliques are triangles, so it
 captures three-way interactions a tree structurally cannot — the payoff a
-tree-only method, `structure_frac` included, cannot reach at any budget. See
-`vignette("differential-privacy")` for scope and the honest utility trade-off.
+tree-only method, `structure_frac` included, cannot reach at any budget
+(`treewidth = 3` reaches four-way cliques, e.g. a 3-bit parity no three-way
+marginal can see). Adding `anneal = TRUE` turns the fixed `d - treewidth` schedule
+into an **AIM-style data-adaptive** one: rounds start noisy and the per-round
+budget **doubles** whenever a measurement fails its noise floor, then any surplus
+budget re-measures the worst-fit clique — all still composing to the exact same
+(ε, δ) over a variable number of rounds. See `vignette("differential-privacy")`
+for scope and the honest utility trade-off.
 
 ## Learn more
 

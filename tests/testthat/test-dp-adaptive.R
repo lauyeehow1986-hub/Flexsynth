@@ -173,10 +173,9 @@ test_that("adaptive is refused on longitudinal and linked releases", {
     "flat-table only")
 })
 
-test_that("dp_control rejects treewidth > 2 and structure_frac + adaptive", {
-  expect_error(dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian",
-                          select = "adaptive", treewidth = 3),
-               "treewidth")
+test_that("dp_control rejects structure_frac + adaptive and bad treewidth / select_frac", {
+  # treewidth > 2 is now supported (see test-dp-anneal.R); the mutual-exclusion
+  # and range validations still hold.
   expect_error(dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian",
                           select = "adaptive", structure_frac = 0.3),
                "structure_frac")

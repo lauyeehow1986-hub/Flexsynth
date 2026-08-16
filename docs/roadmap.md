@@ -232,9 +232,21 @@ engine; Track B is the opt-in differentially private engine.
   selection and measurement. Flat-table only for now (refused on longitudinal /
   linked releases); `treewidth` shipped for 1 and 2. Defaults
   `select = "fixed"` leave every existing path unchanged.
-- Future: PrivBayes greedy degree>1 networks; adaptive **budget annealing** (a
-  data-adaptive round schedule) and `treewidth >= 3` on top of the adaptive
-  selector above.
+- [x] AIM-style **budget annealing** on the adaptive selector
+      (`dp_control(select = "adaptive", anneal = TRUE)`): a data-adaptive round
+      schedule — one-way marginals take a fair fixed share, then clique
+      measurements + their exponential-mechanism selections start at a small
+      per-round quantum and **double** whenever a round's signal fails its noise
+      floor (AIM's \eqn{\sigma}-halving). After the mandatory `d - treewidth`
+      spanning cliques (all variables covered → sampler stays PGM-free), surplus
+      budget re-measures the worst-fit clique (inverse-variance combined, so
+      \eqn{\rho} / \eqn{\epsilon} adds exactly); the final round absorbs the exact
+      remainder, so the release is exactly (\eqn{\epsilon}, \eqn{\delta}) over a
+      **variable** round count. The `treewidth` cap is lifted to allow `>= 3`
+      (four-way and higher cliques), with a cell-blow-up warning.
+- Future: PrivBayes greedy degree>1 networks; and — to spend refinement budget on
+  *loopy* marginals rather than only re-measuring existing cliques — a Private-PGM
+  inference step (the piece this PGM-free sampler deliberately omits).
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

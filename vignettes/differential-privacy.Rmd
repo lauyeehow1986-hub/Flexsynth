@@ -215,9 +215,38 @@ synth(real, ~ id, privacy = dp_aim, seed = 1)$privacy
 The accounting names the model an *adaptive junction tree* of the chosen
 treewidth, splits the histogram count into one-ways plus adaptively selected
 cliques, and reports the selection slice (how much budget, over how many
-exponential-mechanism rounds) separately from the measurement noise. Adaptive
-selection is **flat-table only** for now — it is refused on a longitudinal or
-linked release — and `treewidth` is supported for 1 and 2.
+exponential-mechanism rounds) separately from the measurement noise. `treewidth =
+3` goes one level further, to four-way cliques that hold interactions no *three*-way
+marginal can see (a 3-bit parity is the textbook case); the cost is cell
+sparsity, and the control warns when a clique's cell count grows large enough for
+the per-cell noise to dominate. Adaptive selection is **flat-table only** for now
+— it is refused on a longitudinal or linked release.
+
+**Budget annealing (`anneal = TRUE`).** By default the adaptive selector runs a
+*fixed* `d - treewidth` rounds with a uniform per-round budget. `anneal = TRUE`
+makes the schedule **data-adaptive**, in the spirit of AIM: the one-way marginals
+take a fair fixed share, then each clique round starts at a small quantum (large
+noise) and the budget **doubles** whenever a round's measured signal fails to beat
+its noise floor. Once the mandatory spanning cliques are in place — so every
+variable is still covered and the sampler needs no PGM inference — any surplus
+budget is spent on extra rounds that re-measure the worst-fit clique, combined by
+inverse-variance weighting so the privacy cost adds exactly. The final round
+absorbs the exact remainder, so the release is still precisely \((\epsilon,
+\delta)\), now over a *variable* number of rounds that the data chooses:
+
+```{r adaptive-anneal}
+dp_anneal <- dp_control(epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+                        select = "adaptive", treewidth = 2, anneal = TRUE,
+                        bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_anneal, seed = 1)$privacy
+```
+
+The accounting now reports the realised schedule — total rounds split into
+spanning and refinement, how many times the budget doubled, and the annealed noise
+range. Because the model stays a spanning junction tree (no PGM inference),
+refinement can only sharpen the cliques it already measured, not add loopy
+marginals; annealing helps most when there are few variables and the fixed
+schedule would otherwise leave budget unspent.
 
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person

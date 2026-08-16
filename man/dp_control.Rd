@@ -15,6 +15,7 @@ dp_control(
   select = c("fixed", "adaptive"),
   treewidth = 1L,
   select_frac = 0.25,
+  anneal = FALSE,
   cross_table = FALSE,
   longitudinal = FALSE,
   baseline = NULL,
@@ -97,10 +98,13 @@ junction-tree model — the ceiling on interaction order the model can hold.
 \code{1} (default) builds a tree (each measured marginal is a pair; equivalent
 \emph{model class} to \code{dependence = "tree"}, but selected adaptively). \code{2} lets the
 selector measure three-way marginals whose variables form triangles, so
-pairwise-invisible three-way structure survives. Higher clique orders cost
-more per cell (a \code{(w+1)}-way histogram is sparser at the same noise), so raise
-it only when three-way interactions matter. Values above \code{2} are not yet
-supported. Ignored unless \code{select = "adaptive"}.}
+pairwise-invisible three-way structure survives, and \code{3} measures four-way
+cliques (interactions no three-way marginal can see, e.g. a 3-bit parity).
+Higher clique orders cost more per cell — a \code{(w+1)}-way histogram over \code{bins}
+cells per axis is \code{bins^(w+1)} cells, so the per-cell DP noise grows fast; a
+warning is raised when that count is large (\code{bins} is the numeric proxy;
+low-cardinality factor cliques are smaller). Raise it only when interactions
+of that order genuinely matter. Ignored unless \code{select = "adaptive"}.}
 
 \item{select_frac}{Adaptive selection only. Fraction of the marginal budget
 spent on the private \strong{selection} (the exponential-mechanism rounds); the
@@ -109,6 +113,25 @@ the one-way marginals). Default \code{0.25}. Selection tolerates noise well, so 
 modest slice usually gives the best fidelity (the same intuition as
 \code{structure_frac}); both slices compose into the same exact
 (\eqn{\epsilon}, \eqn{\delta}). Ignored unless \code{select = "adaptive"}.}
+
+\item{anneal}{Adaptive selection only. \code{FALSE} (default) uses the fixed
+\code{d - treewidth}-round schedule with a uniform per-round budget. \code{TRUE} opts
+into \strong{AIM-style budget annealing} — a data-adaptive round schedule: the
+\code{d} one-way marginals take a fair fixed share, then the clique measurements
+and their exponential-mechanism selections start at a small per-round quantum
+(large noise) and \strong{double} whenever a round's measured signal fails to beat
+its noise floor (AIM's \eqn{\sigma}-halving rule). After the mandatory
+\code{d - treewidth} spanning cliques — which guarantee every variable is covered,
+keeping the sampler inference-free — any \strong{surplus} budget is spent on extra
+rounds that re-measure the worst-fit existing clique (inverse-variance
+combined, so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round
+absorbs the exact remainder, so the total spend is still exactly
+(\eqn{\epsilon}, \eqn{\delta}) — now over a \strong{variable} number of rounds
+chosen from the data. Because the model stays a spanning junction tree (no
+PGM inference), refinement can only sharpen the measured cliques, not add
+loopy marginals; it is most useful when there are few variables and the fixed
+schedule would otherwise leave budget on the table. Ignored unless
+\code{select = "adaptive"}; setting it without adaptive selection is an error.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

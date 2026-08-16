@@ -263,6 +263,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   # eps adds; zCDP rho adds.
   learn_info <- NULL
   adapt_info <- NULL
+  pool_meas <- NULL
+  pool_sel <- NULL
   if (adaptive) {
     # Marginal budget splits into a selection slice (the exponential-mechanism
     # rounds) and a measurement slice (the d one-ways + d - w cliques); both
@@ -271,11 +273,20 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     calib_struct <- NULL
     calib <- dp_calibrate(dp, n_marginals, cap,
                           budget_frac = marg_frac * (1 - sel_frac))
-    sel_eps <- dp_select_eps(dp, n_cliques, marg_frac * sel_frac)
-    adapt_info <- list(treewidth = w_eff, n_cliques = n_cliques,
-                       select_frac = sel_frac, select_eps = sel_eps,
-                       meas_noise = if (calib$mechanism == "laplace")
-                         calib$scale else calib$sigma)
+    if (isTRUE(dp$anneal)) {
+      # Annealed schedule: hand the measurement and selection pools straight to
+      # the engine, which spends them over a data-adaptive number of rounds.
+      total <- if (dp$mechanism == "gaussian")
+        zcdp_rho_for(dp$epsilon, dp$delta) else dp$epsilon
+      pool_meas <- marg_frac * (1 - sel_frac) * total
+      pool_sel  <- marg_frac * sel_frac * total
+    } else {
+      sel_eps <- dp_select_eps(dp, n_cliques, marg_frac * sel_frac)
+      adapt_info <- list(treewidth = w_eff, n_cliques = n_cliques,
+                         select_frac = sel_frac, select_eps = sel_eps,
+                         meas_noise = if (calib$mechanism == "laplace")
+                           calib$scale else calib$sigma)
+    }
   } else if (use_learn) {
     n_struct <- n_pairs
     n_param  <- 2L * d - 1L
@@ -297,9 +308,21 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   codes <- stats::setNames(
     lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)
 
-  model <- if (adaptive)
-    dp_fit_model_adaptive(codes, nbins, dp, calib, w_eff, adapt_info$select_eps, cap)
-  else dp_fit_model(codes, nbins, dp, calib, calib_struct)
+  model <- if (adaptive) {
+    if (isTRUE(dp$anneal)) {
+      fit <- dp_fit_model_adaptive_anneal(codes, nbins, dp, w_eff, cap,
+                                          pool_meas, pool_sel)
+      adapt_info <- fit$anneal
+      fit$model
+    } else {
+      dp_fit_model_adaptive(codes, nbins, dp, calib, w_eff,
+                            adapt_info$select_eps, cap)
+    }
+  } else dp_fit_model(codes, nbins, dp, calib, calib_struct)
+  # The annealed path measures a data-adaptive number of histograms (d one-ways +
+  # the realised clique rounds); report that actual count.
+  n_marg_report <- if (adaptive && isTRUE(dp$anneal))
+    d + adapt_info$n_rounds else n_marginals
   n_syn <- if (!is.null(tuning$k)) max(1L, as.integer(round(tuning$k)))
            else model$n_est
 
@@ -311,7 +334,7 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   syns <- lapply(seq_len(m), function(i) make_one())
   syn <- if (m == 1L) syns[[1L]] else syns
 
-  acct <- new_dp_accounting(dp, calib, cap, n_marginals, vars, bounded$dropped,
+  acct <- new_dp_accounting(dp, calib, cap, n_marg_report, vars, bounded$dropped,
                             domain_info, learn = learn_info, adaptive = adapt_info)
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),

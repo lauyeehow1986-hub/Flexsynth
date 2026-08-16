@@ -102,10 +102,31 @@
 #'   `1` (default) builds a tree (each measured marginal is a pair; equivalent
 #'   *model class* to `dependence = "tree"`, but selected adaptively). `2` lets the
 #'   selector measure three-way marginals whose variables form triangles, so
-#'   pairwise-invisible three-way structure survives. Higher clique orders cost
-#'   more per cell (a `(w+1)`-way histogram is sparser at the same noise), so raise
-#'   it only when three-way interactions matter. Values above `2` are not yet
-#'   supported. Ignored unless `select = "adaptive"`.
+#'   pairwise-invisible three-way structure survives, and `3` measures four-way
+#'   cliques (interactions no three-way marginal can see, e.g. a 3-bit parity).
+#'   Higher clique orders cost more per cell — a `(w+1)`-way histogram over `bins`
+#'   cells per axis is `bins^(w+1)` cells, so the per-cell DP noise grows fast; a
+#'   warning is raised when that count is large (`bins` is the numeric proxy;
+#'   low-cardinality factor cliques are smaller). Raise it only when interactions
+#'   of that order genuinely matter. Ignored unless `select = "adaptive"`.
+#' @param anneal Adaptive selection only. `FALSE` (default) uses the fixed
+#'   `d - treewidth`-round schedule with a uniform per-round budget. `TRUE` opts
+#'   into **AIM-style budget annealing** — a data-adaptive round schedule: the
+#'   `d` one-way marginals take a fair fixed share, then the clique measurements
+#'   and their exponential-mechanism selections start at a small per-round quantum
+#'   (large noise) and **double** whenever a round's measured signal fails to beat
+#'   its noise floor (AIM's \eqn{\sigma}-halving rule). After the mandatory
+#'   `d - treewidth` spanning cliques — which guarantee every variable is covered,
+#'   keeping the sampler inference-free — any **surplus** budget is spent on extra
+#'   rounds that re-measure the worst-fit existing clique (inverse-variance
+#'   combined, so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round
+#'   absorbs the exact remainder, so the total spend is still exactly
+#'   (\eqn{\epsilon}, \eqn{\delta}) — now over a **variable** number of rounds
+#'   chosen from the data. Because the model stays a spanning junction tree (no
+#'   PGM inference), refinement can only sharpen the measured cliques, not add
+#'   loopy marginals; it is most useful when there are few variables and the fixed
+#'   schedule would otherwise leave budget on the table. Ignored unless
+#'   `select = "adaptive"`; setting it without adaptive selection is an error.
 #' @param select_frac Adaptive selection only. Fraction of the marginal budget
 #'   spent on the private **selection** (the exponential-mechanism rounds); the
 #'   remaining `1 - select_frac` is spent **measuring** the chosen marginals (and
@@ -253,6 +274,7 @@ dp_control <- function(epsilon,
                        select = c("fixed", "adaptive"),
                        treewidth = 1L,
                        select_frac = 0.25,
+                       anneal = FALSE,
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        baseline = NULL,
@@ -320,12 +342,15 @@ dp_control <- function(epsilon,
     stop("`select_frac` must be a single number in (0, 1).", call. = FALSE)
   }
   select_frac <- as.numeric(select_frac)
+  if (!is.logical(anneal) || length(anneal) != 1L || is.na(anneal)) {
+    stop("`anneal` must be a single TRUE or FALSE.", call. = FALSE)
+  }
+  if (isTRUE(anneal) && select != "adaptive") {
+    stop(paste0("`anneal = TRUE` needs `select = \"adaptive\"`: it anneals the ",
+                "adaptive selector's per-round budget over a data-adaptive ",
+                "round schedule."), call. = FALSE)
+  }
   if (select == "adaptive") {
-    if (treewidth > 2L) {
-      stop(paste0("`treewidth` > 2 is not yet supported for adaptive selection; ",
-                  "use treewidth = 1 (tree) or 2 (three-way cliques)."),
-           call. = FALSE)
-    }
     if (!is.null(structure_frac)) {
       stop(paste0("`structure_frac` applies to the fixed tree fitter; adaptive ",
                   "selection uses `select_frac` (and `treewidth`) instead - set ",
@@ -380,6 +405,20 @@ dp_control <- function(epsilon,
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
   }
+  # Adaptive selection at high treewidth makes each clique a (treewidth + 1)-way
+  # histogram; over `bins` cells per axis that is bins^(treewidth + 1) cells, and
+  # past a point the per-cell noise swamps the signal. Warn on that (bins is the
+  # numeric-variable proxy; low-cardinality factor cliques are smaller).
+  if (select == "adaptive") {
+    max_cells <- as.numeric(bins)^(treewidth + 1L)
+    if (max_cells > 5e4) {
+      warning(sprintf(paste0("treewidth %d makes each clique up to bins^%d = ",
+                             "%.0f cells; at that width the per-cell DP noise can ",
+                             "dominate the signal (bins is the numeric proxy; ",
+                             "low-cardinality factors are smaller)."),
+                      treewidth, treewidth + 1L, max_cells), call. = FALSE)
+    }
+  }
   if (!is.null(bounds)) {
     if (!is.list(bounds) || is.null(names(bounds)) || any(names(bounds) == "")) {
       stop("`bounds` must be a named list of numeric c(lower, upper) pairs.",
@@ -410,6 +449,7 @@ dp_control <- function(epsilon,
       select = select,                          # "fixed" or "adaptive"
       treewidth = treewidth,                    # integer >= 1 (adaptive only)
       select_frac = select_frac,                # number in (0, 1) (adaptive only)
+      anneal = anneal,                          # logical (adaptive only)
       cross_table = cross_table,
       longitudinal = longitudinal,               # FALSE, TRUE, or table names
       baseline = baseline,                        # NULL or character column names
@@ -437,8 +477,10 @@ print.dp_control <- function(x, ...) {
     cat("  structure : budget-efficient (", signif(x$structure_frac, 3),
         " of budget selects the tree)\n", sep = "")
   if (identical(x$select, "adaptive"))
-    cat("  select    : adaptive AIM-style, treewidth ", x$treewidth, " (",
-        signif(x$select_frac, 3), " of budget selects marginals)\n", sep = "")
+    cat("  select    : adaptive AIM-style, treewidth ", x$treewidth,
+        if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
+        else " (", signif(x$select_frac, 3), " of budget selects marginals)\n",
+        sep = "")
   if (isTRUE(x$cross_table))
     cat("  cross-table: parent-conditioned child vars (linked DP)\n")
   if (isTRUE(x$longitudinal))
