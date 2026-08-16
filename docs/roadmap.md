@@ -310,11 +310,13 @@ engine; Track B is the opt-in differentially private engine.
       annealed set is triangulated and reconciled with Private-PGM as in the
       fixed-round case, so refinement sharpens loopy marginals. New internal
       `dp_fit_model_aim_anneal`; flat-table only.
-- [x] **Model-projection candidate scoring** (`dp_control(select = "aim", scoring =
-      "model")`). Scores each candidate marginal in AIM's exponential-mechanism rounds
-      against the current reconciled Private-PGM model's own marginal over that pair,
-      rather than the one-way independence product (`scoring = "independence"`, the
-      default). This is AIM's actual quality function: a loopy pair the model already
+- [x] **Model-projection candidate scoring** (the Full AIM default;
+      `dp_control(select = "aim")`, `scoring = "auto"`). Scores each candidate marginal
+      in AIM's exponential-mechanism rounds against the current reconciled Private-PGM
+      model's own marginal over that pair, rather than the one-way independence product
+      (still available as the cheaper opt-out, `scoring = "independence"`). This is
+      AIM's actual quality function and is now the faithful default: a loopy pair the
+      model already
       explains through the measured-so-far marginals stops looking surprising, so the
       budget goes to the genuinely worst-fit interaction. The reference is read from
       the already-privatised marginals — reconciled each round and projected onto the

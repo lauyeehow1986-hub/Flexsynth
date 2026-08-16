@@ -203,23 +203,26 @@
 #'   construction (a loopy marginal set has no local sampler), so `estimator` is
 #'   moot there.
 #' @param scoring How `select = "aim"` scores each candidate marginal in its
-#'   exponential-mechanism rounds. `"independence"` (default) scores a pair by how
-#'   far its true joint sits from the **product of its one-way marginals** — the
-#'   cheap reference every existing path uses. `"model"` opts into AIM's actual
-#'   quality function: each candidate is scored against the **current reconciled
-#'   Private-PGM model's own marginal** over that pair, so a loopy pair the model
-#'   already explains (through the marginals measured so far) no longer looks
-#'   surprising and the budget is steered to the genuinely worst-fit interaction.
-#'   The model reference is read from the already-privatised marginals — reconciled
-#'   each round and projected onto the candidate (a not-yet-measured pair projects
-#'   across cliques of the junction tree) — so it is **pure post-processing**: the
+#'   exponential-mechanism rounds. `"auto"` (default) picks the faithful choice per
+#'   selector: **`select = "aim"` uses `"model"`** (AIM's actual quality function),
+#'   and every other selector uses `"independence"` (where model scoring is inert).
+#'   `"model"` scores each candidate against the **current reconciled Private-PGM
+#'   model's own marginal** over that pair, so a loopy pair the model already
+#'   explains (through the marginals measured so far) no longer looks surprising and
+#'   the budget is steered to the genuinely worst-fit interaction. `"independence"`
+#'   is the cheaper opt-out: it scores a pair by how far its true joint sits from
+#'   the **product of its one-way marginals** — the reference the other selectors
+#'   use, and Full AIM's behaviour before this became the default. The model
+#'   reference is read from the already-privatised marginals — reconciled each round
+#'   and projected onto the candidate (a not-yet-measured pair projects across
+#'   cliques of the junction tree) — so it is **pure post-processing**: the
 #'   exponential mechanism's sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta})
 #'   are **identical** to `"independence"`; only which marginals get selected
-#'   changes. It costs extra computation (a reconciliation per selection round).
-#'   Composes with `anneal`. Requires `select = "aim"` (an error otherwise); the
-#'   adaptive selector's candidates always introduce a fresh variable, so its model
-#'   projection reduces to the independence product anyway. Ignored (no-op) for
-#'   `"independence"`.
+#'   changes. `"model"` costs extra computation (a reconciliation per selection
+#'   round) and composes with `anneal`. Explicit `"model"` requires `select = "aim"`
+#'   (an error otherwise); the adaptive selector's candidates always introduce a
+#'   fresh variable, so its model projection reduces to the independence product
+#'   anyway.
 #' @param cross_table Linked DP only ([synth_linked()]). When `TRUE`, a child
 #'   table's variables are conditioned on the **synthetic parent's** attributes:
 #'   for each child table with a modellable immediate parent, parent-by-child
@@ -363,7 +366,7 @@ dp_control <- function(epsilon,
                        select_frac = 0.25,
                        anneal = FALSE,
                        estimator = c("local", "pgm"),
-                       scoring = c("independence", "model"),
+                       scoring = c("auto", "independence", "model"),
                        cross_table = FALSE,
                        longitudinal = FALSE,
                        baseline = NULL,
@@ -380,6 +383,14 @@ dp_control <- function(epsilon,
   select <- match.arg(select)
   estimator <- match.arg(estimator)
   scoring <- match.arg(scoring)
+  # "auto" (the default) resolves to the faithful choice per selector: Full AIM's
+  # actual quality function is model-projection scoring, so `select = "aim"`
+  # defaults to "model"; every other selector defaults to the one-way-product
+  # "independence" reference (where model scoring is inert anyway). Explicit
+  # "independence" / "model" always win, and "auto" never yields "model" for a
+  # non-aim selector, so the gate below still catches only explicit misuse.
+  if (scoring == "auto")
+    scoring <- if (select == "aim") "model" else "independence"
   domain <- match.arg(domain)
 
   if (missing(epsilon) || !is.numeric(epsilon) || length(epsilon) != 1L ||
@@ -651,7 +662,10 @@ print.dp_control <- function(x, ...) {
         " of budget selects marginals)\n", sep = "")
     if (identical(x$scoring, "model"))
       cat("  scoring   : model-projection (candidates scored against the",
-          "reconciled model)\n")
+          "reconciled model; default)\n")
+    else
+      cat("  scoring   : independence (one-way product;",
+          "model-projection disabled)\n")
   }
   if (identical(x$estimator, "pgm"))
     cat("  estimator : Private-PGM reconciliation",

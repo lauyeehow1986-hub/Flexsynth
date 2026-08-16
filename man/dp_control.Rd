@@ -18,7 +18,7 @@ dp_control(
   select_frac = 0.25,
   anneal = FALSE,
   estimator = c("local", "pgm"),
-  scoring = c("independence", "model"),
+  scoring = c("auto", "independence", "model"),
   cross_table = FALSE,
   longitudinal = FALSE,
   baseline = NULL,
@@ -207,23 +207,26 @@ construction (a loopy marginal set has no local sampler), so \code{estimator} is
 moot there.}
 
 \item{scoring}{How \code{select = "aim"} scores each candidate marginal in its
-exponential-mechanism rounds. \code{"independence"} (default) scores a pair by how
-far its true joint sits from the \strong{product of its one-way marginals} — the
-cheap reference every existing path uses. \code{"model"} opts into AIM's actual
-quality function: each candidate is scored against the \strong{current reconciled
-Private-PGM model's own marginal} over that pair, so a loopy pair the model
-already explains (through the marginals measured so far) no longer looks
-surprising and the budget is steered to the genuinely worst-fit interaction.
-The model reference is read from the already-privatised marginals — reconciled
-each round and projected onto the candidate (a not-yet-measured pair projects
-across cliques of the junction tree) — so it is \strong{pure post-processing}: the
+exponential-mechanism rounds. \code{"auto"} (default) picks the faithful choice per
+selector: \strong{\code{select = "aim"} uses \code{"model"}} (AIM's actual quality function),
+and every other selector uses \code{"independence"} (where model scoring is inert).
+\code{"model"} scores each candidate against the \strong{current reconciled Private-PGM
+model's own marginal} over that pair, so a loopy pair the model already
+explains (through the marginals measured so far) no longer looks surprising and
+the budget is steered to the genuinely worst-fit interaction. \code{"independence"}
+is the cheaper opt-out: it scores a pair by how far its true joint sits from
+the \strong{product of its one-way marginals} — the reference the other selectors
+use, and Full AIM's behaviour before this became the default. The model
+reference is read from the already-privatised marginals — reconciled each round
+and projected onto the candidate (a not-yet-measured pair projects across
+cliques of the junction tree) — so it is \strong{pure post-processing}: the
 exponential mechanism's sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta})
 are \strong{identical} to \code{"independence"}; only which marginals get selected
-changes. It costs extra computation (a reconciliation per selection round).
-Composes with \code{anneal}. Requires \code{select = "aim"} (an error otherwise); the
-adaptive selector's candidates always introduce a fresh variable, so its model
-projection reduces to the independence product anyway. Ignored (no-op) for
-\code{"independence"}.}
+changes. \code{"model"} costs extra computation (a reconciliation per selection
+round) and composes with \code{anneal}. Explicit \code{"model"} requires \code{select = "aim"}
+(an error otherwise); the adaptive selector's candidates always introduce a
+fresh variable, so its model projection reduces to the independence product
+anyway.}
 
 \item{cross_table}{Linked DP only (\code{\link[=synth_linked]{synth_linked()}}). When \code{TRUE}, a child
 table's variables are conditioned on the \strong{synthetic parent's} attributes:

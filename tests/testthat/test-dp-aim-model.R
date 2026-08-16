@@ -26,9 +26,18 @@ test_that("dp_control accepts scoring = 'model' with select = 'aim'", {
   expect_identical(dp$scoring, "model")
 })
 
-test_that("scoring defaults to independence and is stored on every control", {
+test_that("scoring defaults to independence for a non-aim control", {
   dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian")
   expect_identical(dp$scoring, "independence")
+  dp2 <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian",
+                    select = "adaptive")
+  expect_identical(dp2$scoring, "independence")
+})
+
+test_that("select = 'aim' defaults scoring to model", {
+  dp <- dp_control(epsilon = 1, delta = 1e-6, mechanism = "gaussian",
+                   select = "aim", treewidth = 2)
+  expect_identical(dp$scoring, "model")
 })
 
 test_that("scoring = 'model' is rejected without select = 'aim'", {
@@ -121,15 +130,18 @@ test_that("model scoring leaves the (eps, delta) accounting unchanged", {
   expect_identical(ind$aim$scoring, "independence")
 })
 
-test_that("default select = 'aim' output is identical to explicit independence", {
+test_that("default select = 'aim' output is identical to explicit model", {
   df <- aim_chain_data(1500L, 11L)
   d1 <- dp_control(epsilon = 8, delta = 1e-6, mechanism = "gaussian",
-                   select = "aim", treewidth = 2)
+                   select = "aim", treewidth = 2)                 # default -> model
   d2 <- dp_control(epsilon = 8, delta = 1e-6, mechanism = "gaussian",
-                   select = "aim", treewidth = 2, scoring = "independence")
+                   select = "aim", treewidth = 2, scoring = "model")
   a <- as.data.frame(synth(df, structure = ~ id, privacy = d1, seed = 3))
   b <- as.data.frame(synth(df, structure = ~ id, privacy = d2, seed = 3))
   expect_identical(a, b)
+  # (The scoring *difference* itself is proven deterministically by the
+  # dp_aim_reference test above; end-to-end it only shows when the selector must
+  # choose among more pairs than it can measure, which a 3-variable chain does not.)
 })
 
 # ---- prints ----------------------------------------------------------------

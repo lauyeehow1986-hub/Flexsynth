@@ -284,7 +284,10 @@ print.dp_accounting <- function(x, ...) {
         "no extra budget)\n")
     if (identical(am$scoring, "model"))
       cat("  scoring   : model-projection (candidates scored against the",
-          "reconciled model; post-processing)\n")
+          "reconciled model; post-processing, default)\n")
+    else
+      cat("  scoring   : independence (one-way product;",
+          "model-projection disabled)\n")
   }
   if (identical(x$estimator, "pgm")) {
     cat("  estimator : Private-PGM reconciliation of the measured marginals\n")

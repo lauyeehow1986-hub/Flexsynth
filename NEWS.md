@@ -1,20 +1,25 @@
 # flexsynth 0.0.0.9000
 
-* **Track B: model-projection candidate scoring for Full AIM.**
-  `dp_control(select = "aim", scoring = "model")` scores each candidate marginal in
-  AIM's exponential-mechanism rounds against the **current reconciled Private-PGM
-  model's own marginal** over that pair, rather than the product of its one-way
-  marginals (`scoring = "independence"`, the default). This is AIM's actual quality
-  function: a loopy pair the model already explains through the marginals measured so
+* **Track B: model-projection candidate scoring is now the Full AIM default.**
+  `dp_control(select = "aim")` now scores each candidate marginal in AIM's
+  exponential-mechanism rounds against the **current reconciled Private-PGM model's
+  own marginal** over that pair (`scoring = "model"`), rather than the product of its
+  one-way marginals — completing AIM's actual quality function as the faithful
+  default. A loopy pair the model already explains through the marginals measured so
   far no longer looks surprising, so the budget is steered to the genuinely worst-fit
   interaction instead of re-selecting one the model already fits. The model reference
   is read from the **already-privatised** marginals (reconciled each round and
   projected onto the candidate — a not-yet-measured pair projects across cliques of
-  the junction tree, via the new internal `dp_pgm_project()`), so it is **pure
+  the junction tree, via the internal `dp_pgm_project()`), so it is **pure
   post-processing**: the exponential mechanism's sensitivity and the exact
-  (\eqn{\epsilon}, \eqn{\delta}) are identical to `"independence"`; only which
-  marginals get selected changes. Composes with `anneal = TRUE`; costs a
-  reconciliation per selection round. Flat-table only; requires `select = "aim"`.
+  (\eqn{\epsilon}, \eqn{\delta}) are unchanged; only which marginals get selected
+  changes. It costs a reconciliation per selection round and composes with
+  `anneal = TRUE`. **This can change the output of an existing `select = "aim"`
+  release** (a different marginal set may be chosen); the previous one-way-product
+  reference remains available as the cheaper opt-out via
+  `dp_control(select = "aim", scoring = "independence")`. The new default is expressed
+  through `scoring = "auto"` (model for `"aim"`, independence for every other
+  selector). Flat-table only.
 
 * **Track B: annealed Full AIM.** `dp_control(select = "aim", anneal = TRUE)` runs
   Full AIM on the same **data-adaptive \eqn{\sigma}-halving schedule** that
