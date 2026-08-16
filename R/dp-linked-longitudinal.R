@@ -102,13 +102,27 @@ dp_longi_n_init <- function(nC, dp) {
 # forward. Cross-conditioning the initial state adds parent-by-child joints at the
 # same first-row (parent path-cap) sensitivity as the initial marginals, so it
 # folds into the same exact composition.
+#
+# `held` (a logical vector over `vars`, default all FALSE) marks subject-invariant
+# BASELINE columns (dp_control(baseline = ...)): they are modelled once in the
+# initial state - so their joint distribution and their correlation with the first
+# row are kept - and then held exactly constant within a unit, contributing NO
+# transition histogram. `ord` / `cross` (dp_control(transition_order /
+# transition_cross)) deepen the transition model of the time-varying columns: each
+# steps on its own last `ord` values plus the lag-1 values of its `cross` most
+# strongly associated companions (chosen budget-neutrally from the initial model's
+# pairwise mutual information). Extra conditioning is budget-free (a tuple lands in
+# one cell); a higher order lowers the transition sensitivity to path_cap * (cap -
+# ord). These mirror the flat DP longitudinal engine (dp-longitudinal.R), applied
+# per child table.
 dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
                                       dp, calib,
-                                      parent_ctx = NULL, parent_nbins = NULL) {
+                                      parent_ctx = NULL, parent_nbins = NULL,
+                                      held = NULL, ord = 1L, cross = 0L) {
   # Order rows so each parent unit's children are contiguous and temporal.
-  ord <- do.call(order, c(lapply(fk, function(c) cdata_t[[c]]),
-                          list(cdata_t[[own]])))
-  ot   <- cdata_t[ord, , drop = FALSE]
+  ord_ix <- do.call(order, c(lapply(fk, function(c) cdata_t[[c]]),
+                             list(cdata_t[[own]])))
+  ot   <- cdata_t[ord_ix, , drop = FALSE]
   unit <- key_string(ot, fk)
   pos  <- stats::ave(seq_along(unit), match(unit, unique(unit)), FUN = seq_along)
 
@@ -127,28 +141,47 @@ dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
     lapply(vars, function(v) codes[[v]][first_rows]), vars)
   init_cross <- !is.null(parent_ctx) && length(parent_ctx) > 0L
   if (init_cross) {
-    pctx_first <- lapply(parent_ctx, function(x) x[ord][first_rows])
+    pctx_first <- lapply(parent_ctx, function(x) x[ord_ix][first_rows])
     init_model <- dp_fit_child_cross(init_codes, nbins, pctx_first, parent_nbins,
                                      dp, calib)
   } else {
     init_model <- dp_fit_model(init_codes, nbins, dp, calib)
   }
 
-  # Transition matrices over consecutive within-unit pairs.
-  if (length(cur_rows)) {
+  # Baseline (held) columns get no transition; only the time-varying columns do.
+  if (is.null(held)) held <- logical(length(vars))
+  tv_vars <- vars[!held]
+  nT      <- length(tv_vars)
+
+  # Transition model over consecutive within-unit tuples for the time-varying
+  # columns. A first-order own-lag-only model uses the simple per-variable
+  # matrices; a higher order or any cross-parent uses conditional tensors. Both
+  # draw from `calib$add_noise` at the totals already composed by the caller.
+  use_tensor <- (ord > 1L || cross > 0L) && nT > 0L
+  tran <- NULL; tensors <- NULL; cross_parents <- NULL
+  if (use_tensor) {
+    cross_parents <- dp_select_cross_parents(init_model$pairwise_mi, tv_vars,
+                                             vars, cross)
+    tensors <- dp_fit_transition_tensors(codes, nbins, pos, ord, cross_parents,
+                                         tv_vars, calib$add_noise)
+  } else if (nT && length(cur_rows)) {
     prev_codes <- stats::setNames(
-      lapply(vars, function(v) codes[[v]][prev_rows]), vars)
+      lapply(tv_vars, function(v) codes[[v]][prev_rows]), tv_vars)
     cur_codes  <- stats::setNames(
-      lapply(vars, function(v) codes[[v]][cur_rows]), vars)
-    tran <- dp_fit_transitions(prev_codes, cur_codes, nbins, calib$add_noise)
+      lapply(tv_vars, function(v) codes[[v]][cur_rows]), tv_vars)
+    tran <- dp_fit_transitions(prev_codes, cur_codes, nbins[tv_vars],
+                               calib$add_noise)
   } else {
-    # No unit kept >= 2 rows: transitions unidentified but unused (every drawn
-    # length collapses to 1). Fall back to a uniform kernel.
+    # No unit kept >= 2 rows (or nothing is time-varying): transitions
+    # unidentified but unused. Fall back to a uniform kernel over tv columns.
     tran <- stats::setNames(
-      lapply(vars, function(v) matrix(1 / nbins[[v]], nbins[[v]], nbins[[v]])),
-      vars)
+      lapply(tv_vars, function(v) matrix(1 / nbins[[v]], nbins[[v]], nbins[[v]])),
+      tv_vars)
   }
 
   list(kind = "child-longi", vars = vars, nbins = nbins,
-       init_model = init_model, tran = tran, init_cross = init_cross)
+       init_model = init_model, tran = tran, tensors = tensors,
+       init_cross = init_cross, held = held, tv_vars = tv_vars,
+       use_tensor = use_tensor, order = as.integer(ord),
+       cross = as.integer(cross), cross_parents = cross_parents)
 }

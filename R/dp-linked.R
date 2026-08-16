@@ -53,6 +53,16 @@
 # The transitions themselves stay parent-free, so the extra cost is exactly the
 # initial-state joints.
 #
+# A longitudinal child also carries the flat DP Markov engine's two transition
+# controls, applied per table: dp_control(baseline = ...) names subject-invariant
+# columns that are modelled once in the initial state and then held constant within
+# a unit (so they contribute no transition histogram, sharpening the rest at the
+# same budget), and dp_control(transition_order / transition_cross) deepen each
+# time-varying column's transition to its own last `order` values plus the lag-1
+# values of its `cross` most associated companions. Extra conditioning is
+# budget-neutral (a tuple lands in one cell); a higher order lowers the transition
+# sensitivity to path_cap[parent] * (branching_cap - order).
+#
 # Remaining scope (documented in the DP vignette): only the IMMEDIATE parent
 # conditions a child (deeper ancestors reach it through the parent's synthesised
 # values). Constraints and `unit = "row"` are refused.
@@ -259,6 +269,30 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
     use_long_cross[[t]] <- ok &&  use_long[[t]]
   }
 
+  # Longitudinal children carry the flat engine's two within-unit transition
+  # controls, applied per table: dp_control(baseline = ...) names subject-invariant
+  # columns held constant within a unit (no transition histogram), and
+  # dp_control(transition_order / transition_cross) deepen each time-varying
+  # column's transition (own lags + lag-1 companions). `held_flag[[t]]` is a
+  # logical over vars[[t]]; `ord` / `cross` are release-wide scalars. A higher
+  # order needs a branching cap of at least ord + 1 so an order-deep within-unit
+  # transition can be measured, so it is validated against each longitudinal
+  # child's cap before any budget is spent.
+  ord   <- if (is.null(dp$transition_order)) 1L else as.integer(dp$transition_order)
+  cross <- if (is.null(dp$transition_cross)) 0L else as.integer(dp$transition_cross)
+  base_cols <- if (is.null(dp$baseline)) character(0) else dp$baseline
+  held_flag <- stats::setNames(vector("list", length(order)), order)
+  for (t in order) {
+    held_flag[[t]] <- vars[[t]] %in% base_cols
+    if (use_long[[t]] && ord > caps$local[[t]] - 1L) {
+      stop(sprintf(paste0(
+        "linked DP longitudinal: transition_order (%d) must be <= branching cap - ",
+        "1 (%d) for child table '%s' so order-%d within-unit transitions can be ",
+        "measured under its cap. Raise its `max_rows_per_person` or lower ",
+        "transition_order."), ord, caps$local[[t]] - 1L, t, ord), call. = FALSE)
+    }
+  }
+
   # Per-table VARIABLE-model release: total L1, summed squared L2, and histogram
   # count. A longitudinal child releases initial-state marginals (at the parent
   # path cap) plus one transition matrix per variable (at parent path cap *
@@ -276,13 +310,18 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
       # Initial-state marginals: plain n_init, or (combined cross-table) the
       # cross-conditioned count that adds nC * nP parent-by-child joints - all at
       # the same first-row (parent path-cap) sensitivity as the init marginals.
+      # The init model spans ALL variables (baseline included), so ni is unchanged
+      # by baseline; only the time-varying columns (nT) contribute a transition
+      # histogram, at sensitivity pcp * (cap - order) - a higher order or any
+      # cross-parent leaves ni untouched but lowers the transition sensitivity.
       ni  <- if (use_long_cross[[t]])
         dp_child_nvarmarg(nC, length(vars[[hierarchy$parent[[t]]]]), dp)
       else dp_longi_n_init(nC, dp)
-      ts  <- pcp * (lc - 1)                                # transition sensitivity
-      list(l1 = ni * pcp + nC * ts,
-           sq = ni * pcp^2 + nC * ts^2,
-           nhist = as.integer(ni + nC))
+      nT  <- sum(!held_flag[[t]])                          # time-varying columns
+      ts  <- pcp * (lc - ord)                              # transition sensitivity
+      list(l1 = ni * pcp + nT * ts,
+           sq = ni * pcp^2 + nT * ts^2,
+           nhist = as.integer(ni + nT))
     } else {
       pc  <- as.numeric(caps$path[[t]])
       nvm <- if (use_cross[[t]])
@@ -364,7 +403,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         }
         long_model <- dp_fit_child_longitudinal(
           cdata[[t]], hierarchy$fk[[t]], hierarchy$own[[t]], dom, vt, nbins,
-          dp, calib, parent_ctx, parent_nbins)
+          dp, calib, parent_ctx, parent_nbins,
+          held = held_flag[[t]], ord = ord, cross = cross)
       } else {
         codes <- stats::setNames(
           lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
@@ -440,20 +480,25 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         if (length(f$vars)) {
           if (!is.null(f$long_model)) {
             lm <- f$long_model
+            # When the initial state is cross-conditioned, seed each unit's first
+            # row from the parent-conditioned model using the synthetic parent's
+            # codes at that first row; otherwise the Markov engine draws it itself.
+            first_codes <- NULL
             if (isTRUE(lm$init_cross)) {
-              # Seed each unit's first row from the parent-conditioned initial
-              # model, using the synthetic parent's codes at that first row.
               im     <- lm$init_model
               frows  <- which(ppos == 1L)
               pctx_f <- stats::setNames(
                 lapply(im$pvars, function(u) codes[[p]][rep_rows[frows], u]),
                 im$pvars)
               first_codes <- dp_sample_child_codes(im, pctx_f, length(frows))
-              cmat <- dp_markov_codes(im, lm$tran, ppos, f$vars,
-                                      first_codes = first_codes)
-            } else {
-              cmat <- dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars)
             }
+            cmat <- if (isTRUE(lm$use_tensor))
+              dp_markov_codes_tensor(lm$init_model, lm$tensors, ppos, f$vars,
+                                     lm$held, lm$tv_vars, lm$order,
+                                     first_codes = first_codes)
+            else
+              dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars, lm$held,
+                              first_codes = first_codes)
           } else if (!is.null(f$cross_model)) {
             pvars <- f$cross_model$pvars
             pctx <- stats::setNames(
@@ -464,6 +509,15 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
           }
           codes[[t]] <- cmat
           vframe <- dp_decode_frame(cmat, f$dom)
+          # Baseline (held) codes are equal within a unit, but numeric decoding
+          # draws a fresh within-bin value per row; broadcast each unit's first-row
+          # decoded value so a baseline column is byte-for-byte constant per unit.
+          lm <- f$long_model
+          if (!is.null(lm) && any(lm$held)) {
+            g <- cumsum(ppos == 1L)                # unit id (rows contiguous)
+            first_idx <- match(g, g)               # first-row index of each unit
+            for (v in f$vars[lm$held]) vframe[[v]] <- vframe[[v]][first_idx]
+          }
           for (v in f$vars) skel[[v]] <- vframe[[v]]
         } else {
           codes[[t]] <- matrix(NA_integer_, length(rep_rows), 0L)
@@ -480,7 +534,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
 
   # ---- Accounting ---------------------------------------------------------
   tinfo <- lapply(order, function(t) {
-    p <- hierarchy$parent[[t]]
+    p  <- hierarchy$parent[[t]]
+    lm <- fit[[t]]$long_model
     list(name = t,
          role = if (is.na(p)) "root" else "child",
          parent = if (is.na(p)) NA_character_ else p,
@@ -490,6 +545,10 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
          cross = use_cross[[t]],
          cross_init = use_long_cross[[t]],
          longitudinal = use_long[[t]],
+         baseline = if (!is.null(lm)) vars[[t]][lm$held] else character(0),
+         tran_order = if (!is.null(lm)) lm$order else 1L,
+         tran_cross = if (!is.null(lm)) lm$cross else 0L,
+         tran_cross_parents = if (!is.null(lm)) lm$cross_parents else NULL,
          count_sensitivity = if (is.na(p)) NA_integer_ else caps$path[[p]],
          rows_dropped = dropped[[t]])
   })

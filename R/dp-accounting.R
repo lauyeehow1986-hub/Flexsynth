@@ -207,6 +207,28 @@ print.dp_accounting <- function(x, ...) {
       cat(sprintf("    - %-14s %s%s\n", ti$name, role,
                   if (ti$rows_dropped > 0)
                     paste0(" (", ti$rows_dropped, " rows dropped)") else ""))
+      # Per-child within-unit transition controls (longitudinal children only).
+      if (isTRUE(ti$longitudinal)) {
+        if (!is.null(ti$baseline) && length(ti$baseline))
+          cat("        baseline held:", paste(ti$baseline, collapse = ", "), "\n")
+        to <- if (is.null(ti$tran_order)) 1L else ti$tran_order
+        tc <- if (is.null(ti$tran_cross)) 0L else ti$tran_cross
+        if (to > 1L || tc > 0L) {
+          cat(sprintf(
+            "        transitions: order %d + %d cross-parent(s) (sensitivity cap - order)\n",
+            to, tc))
+          if (!is.null(ti$tran_cross_parents)) {
+            pairs <- vapply(names(ti$tran_cross_parents), function(v) {
+              cp <- ti$tran_cross_parents[[v]]
+              if (length(cp)) paste0(v, " ~ ", paste(cp, collapse = "+"))
+              else NA_character_
+            }, character(1))
+            pairs <- pairs[!is.na(pairs)]
+            if (length(pairs))
+              cat("        cross-parents:", paste(pairs, collapse = "; "), "\n")
+          }
+        }
+      }
     }
   } else {
     cat("  row cap   :", x$cap, "per", x$unit,

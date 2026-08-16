@@ -469,6 +469,37 @@ The accounting now lists `visits` as `DP Markov over rows (initial state cond. o
 parent)`. A patient's whole `status` trajectory can then inherit a dependence on
 their baseline attributes, not just autocorrelate with itself.
 
+### Baseline columns and deeper transitions on a linked child
+
+The two within-unit transition controls of the flat DP Markov engine also apply,
+per table, to a longitudinally-modelled linked child. `dp_control(baseline =
+c(...))` names subject-invariant columns of a child (matched against that child's
+own columns) and holds them **exactly constant** within a unit — dropping their
+transition histograms — while `dp_control(transition_order = k, transition_cross =
+m)` deepens each time-varying column's transition to its own last `k` values plus
+the lag-1 values of its `m` most associated companions. A higher order lowers the
+child's transition sensitivity to `path_cap[parent] * (branching_cap - order)`, so
+the order must be at most one less than the child's branching cap:
+
+```{r linked-longi-order}
+dp_order2 <- dp_control(
+  epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+  max_rows_per_person = c(visits = 6), longitudinal = "visits",
+  transition_order = 2, domain = "public", bounds = list(age = c(18, 100)))
+
+res_order2 <- synth_linked(
+  tables     = list(patients = patients, visits = visits),
+  structures = list(patients = ~ id, visits = ~ id / visit_num),
+  keys       = list(patients = "id", visits = c("id", "visit_num")),
+  privacy    = dp_order2, seed = 1)
+res_order2$privacy
+```
+
+The `visits` line now reports `transitions: order 2`; with a baseline column the
+accounting would add a `baseline held: ...` line and charge one fewer transition
+histogram. Both settings compose with the combined cross-conditioned initial state
+above.
+
 ## What Track B does *not* do (yet)
 
 - **Cross-table conditioning beyond the immediate parent** is not modelled;
@@ -478,11 +509,6 @@ their baseline attributes, not just autocorrelate with itself.
   trajectory), but each within-unit step $P(v_t \mid v_{t-1})$ stays parent-free.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
-- `baseline` (columns held exactly constant within a person) and the
-  higher-order / cross-variable transition model (`transition_order`,
-  `transition_cross`) apply to a flat longitudinal `synth()` release; the
-  longitudinally-modelled *linked* child table still uses the first-order,
-  own-lag, all-time-varying model.
 
 Within those limits the guarantee is exact and reported. For anything labelled
 differentially private, keep the accounting record with the release. The

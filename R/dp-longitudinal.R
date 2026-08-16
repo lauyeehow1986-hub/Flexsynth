@@ -204,8 +204,13 @@ dp_fit_transition_tensors <- function(codes, nbins, pos, order, cross_parents,
 # context is min(t - 1, order) own lags plus each variable's cross parents at lag
 # 1, looked up in the precomputed depth-d conditional table. Held (baseline)
 # variables are carried forward unchanged, exactly as in dp_markov_codes().
+# `first_codes` (default NULL) lets the caller supply the first-row code matrix
+# instead of drawing it from `init_model` - used when a longitudinally-modelled
+# linked child's initial state is cross-conditioned on its synthetic parent (the
+# caller draws the first rows from the parent-conditioned model). Mirrors the same
+# argument on dp_markov_codes().
 dp_markov_codes_tensor <- function(init_model, tensors, ppos, vars, held,
-                                   tv_vars, order) {
+                                   tv_vars, order, first_codes = NULL) {
   nV <- length(vars)
   N  <- length(ppos)
   cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
@@ -213,7 +218,8 @@ dp_markov_codes_tensor <- function(init_model, tensors, ppos, vars, held,
   if (is.null(held)) held <- logical(nV)
   vcol <- stats::setNames(seq_len(nV), vars)
   frows <- which(ppos == 1L)
-  cmat[frows, ] <- dp_sample_codes(init_model, length(frows))
+  cmat[frows, ] <- if (is.null(first_codes))
+    dp_sample_codes(init_model, length(frows)) else first_codes
   tmax <- max(ppos)
   for (tt in seq_len(tmax)[-1L]) {
     rows_t <- which(ppos == tt)

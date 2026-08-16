@@ -149,9 +149,22 @@ dp_fit_child_cross <- function(child_codes, child_nbins,
     t(apply(jt, 1L, dp_normalise))                     # P(b | a)
   })
 
-  list(kind = "child-cross", cvars = cvars, pvars = pvars, nP = nP,
+  # Child-by-child mutual information (post-processing of the already-measured
+  # child-child joints), dimnamed by child variable. When this model seeds the
+  # initial state of a longitudinally-modelled child (combined cross + longi), the
+  # transition tensors pick cross-variable parents from it exactly as the flat
+  # engine reads dp_fit_model()$pairwise_mi. Only populated for a tree (the child-
+  # child joints are unmeasured under dependence = "independent").
+  child_mi <- if (tree) {
+    cc <- W[nP + seq_len(nC), nP + seq_len(nC), drop = FALSE]
+    dimnames(cc) <- list(cvars, cvars)
+    cc
+  } else NULL
+
+  list(kind = "child-cross", cvars = cvars, vars = cvars, pvars = pvars, nP = nP,
        child_nbins = child_nbins, edges = edges, cond = cond,
-       marginals = lapply(c1, dp_normalise), n_est = n_est)
+       marginals = lapply(c1, dp_normalise), n_est = n_est,
+       pairwise_mi = child_mi)
 }
 
 # Draw child variable codes conditioned on parent context. `parent_context` is a

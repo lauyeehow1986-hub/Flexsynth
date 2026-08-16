@@ -1,5 +1,22 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: baseline columns and deeper transitions now apply to a linked
+  longitudinal child.** The two within-unit transition controls of the flat DP
+  Markov engine — `dp_control(baseline = ...)` (subject-invariant columns held
+  exactly constant within a unit) and `dp_control(transition_order = k,
+  transition_cross = m)` (each time-varying column steps on its own last `k` values
+  plus the lag-1 values of its `m` most associated companions) — are now honoured
+  by any **longitudinally-modelled linked child** (`synth_linked(..., privacy =
+  dp_control(longitudinal = ...))`), applied per table: a baseline name is matched
+  against each such child's own columns, and the order/cross settings apply
+  uniformly to every longitudinal child. The budget stays exact — a baseline column
+  drops its transition histogram (sharpening the rest), cross-conditioning is
+  budget-neutral, and a higher order lowers the child's transition sensitivity to
+  `path_cap[parent] * (branching_cap - order)` (so the order must be at most one
+  less than the child's branching cap, validated per table). All three compose with
+  the existing combined cross-table + longitudinal path (a cross-conditioned initial
+  state can also hold baseline columns and step deepened transitions). Ignored by
+  non-longitudinal linked children, exactly as before.
 * **Track B: cross-table conditioning and longitudinal transitions now combine on
   the same linked child.** Previously a longitudinally-modelled child table
   (`dp_control(longitudinal = ...)`) could not also be cross-conditioned on its
@@ -29,8 +46,8 @@
   cell — while a higher order *lowers* the transition sensitivity to `cap - order`
   (a person contributes fewer, deeper tuples), so composition stays exact and the
   order must be at most `max_rows_per_person - 1`. `transition_order = 1`,
-  `transition_cross = 0` (defaults) keep the first-order own-lag model unchanged;
-  both are ignored by flat / linked releases.
+  `transition_cross = 0` (defaults) keep the first-order own-lag model unchanged.
+  (These also apply to a longitudinal linked child — see the top entry.)
 * **Track B: baseline columns held exactly constant.** `dp_control(baseline =
   c(...))` names subject-invariant columns in a longitudinal `synth()` release (a
   `structure` with a nesting index). Those columns are modelled once in the
@@ -42,7 +59,8 @@
   release, so the remaining measurements are sharper at the same exact
   (\eqn{\epsilon}, \eqn{\delta}). Declaring a column baseline is public schema
   knowledge and costs no budget; names that match no modelled column are ignored.
-  `baseline = NULL` (default) treats every column as time-varying.
+  `baseline = NULL` (default) treats every column as time-varying. (Also applies to
+  a longitudinal linked child — see the top entry.)
 * **Track B: budget-efficient structure learning.** `dp_control(structure_frac =
   f)` learns the flat `dependence = "tree"` Chow-Liu structure from a cheap
   all-pairs scan that spends only the fraction `f` of the marginal budget, then

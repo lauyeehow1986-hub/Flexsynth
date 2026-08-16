@@ -191,10 +191,20 @@ engine; Track B is the opt-in differentially private engine.
   starts; transitions stay parent-free, so the only extra cost is the `nC * nP`
   parent-by-child initial-state joints, at the same first-row sensitivity as the
   initial marginals — folded into the same exact (\eqn{\epsilon}, \eqn{\delta}).
+- [x] **Baseline + higher-order / cross-variable transitions on a linked
+  longitudinal child** (`dp_control(baseline = ..., transition_order = k,
+  transition_cross = m)` with `synth_linked(..., longitudinal = ...)`). The two flat
+  DP Markov transition controls now apply, per table, to every longitudinally-
+  modelled linked child: baseline names are matched against each child's own
+  columns and held exactly constant within a unit (dropping their transition
+  histograms), while the order/cross settings deepen each time-varying column's
+  transition. A baseline column sharpens the rest at the same budget,
+  cross-conditioning is budget-neutral, and a higher order lowers the child's
+  transition sensitivity to `path_cap[parent] * (branching_cap - order)` (so
+  `order <= branching_cap - 1`, validated per table). All three compose with the
+  combined cross-table + longitudinal path above.
 - Future: PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection; extending
-  `baseline` and the higher-order / cross-variable transition model to a
-  longitudinally-modelled linked child table (both currently flat `synth()` only).
+  greedy degree>1 networks and AIM-style adaptive marginal selection.
   (Data-independent / DP-estimated bin edges are done; see the post-Phase-8 item
   below.)
 
@@ -217,8 +227,7 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7 (carrying the
-  baseline / higher-order transition models into linked child tables);
+- Future: the further DP extensions listed under Phase 7;
   adaptive-selection structure
   learning beyond the fixed Chow-Liu split (AIM-style); DP set-union for
   discovering `character` category sets under `domain = "dp"` (currently public
