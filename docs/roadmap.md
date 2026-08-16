@@ -325,8 +325,18 @@ engine; Track B is the opt-in differentially private engine.
       sensitivity and the exact (\eqn{\epsilon}, \eqn{\delta}) are identical to the
       independence reference; only the selection changes. Composes with `anneal`;
       flat-table only.
-- Future: DP set-union for `character` category discovery under `domain = "dp"`; and
-  tagging a stable 0.1.0 for CRAN.
+- [x] **DP set-union for `character` category discovery** (`domain = "dp"`). A bare
+      `character` column's present category set is discovered privately with a stability
+      histogram (Laplace-noised present-category counts kept over a threshold that hides
+      any category a single person could have created; rare categories fold into an
+      `"(other)"` catch-all). Funded from the same `domain_frac` slice as numeric
+      bin-edge estimation and composed into the exact (\eqn{\epsilon}, \eqn{\delta}) via
+      an effective control that carves the categorical `(eps, delta)` off the top; needs
+      `delta > 0` (a threshold cannot hide a lone category at `delta = 0`), so pure-eps
+      still refuses `character`. New internal `dp_discover_categories`; flat `synth()`
+      only; releases with no `character` column are byte-identical. Linked / longitudinal
+      `character` discovery remains a follow-up.
+- Future: tagging a stable 0.1.0 for CRAN.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

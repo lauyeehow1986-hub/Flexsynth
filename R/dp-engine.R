@@ -264,12 +264,24 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   is_num  <- vapply(vars, function(v) is.numeric(cdata[[v]]), logical(1))
   is_char <- vapply(vars, function(v) is.character(cdata[[v]]), logical(1))
   numeric_vars <- vars[is_num]
-  if (dp$domain %in% c("dp", "public") && any(is_char)) {
+  char_vars <- vars[is_char]
+  # Character columns: under domain = "public" we still require public factor
+  # levels; under domain = "dp" the category set is discovered privately by DP
+  # set-union (below), which needs delta > 0 -- a threshold cannot hide a lone
+  # category's presence at delta = 0, so pure-eps still refuses.
+  if (dp$domain == "public" && length(char_vars)) {
     stop(sprintf(paste0(
-      "DP synthesis with domain = \"%s\" needs a public category set for %s: ",
-      "convert the character column(s) to factors (with their full `levels`), ",
-      "or use domain = \"data\" to read levels from the data (not accounted)."),
-      dp$domain, paste(vars[is_char], collapse = ", ")), call. = FALSE)
+      "DP synthesis with domain = \"public\" needs a public category set for %s: ",
+      "convert the character column(s) to factors (with their full `levels`)."),
+      paste(char_vars, collapse = ", ")), call. = FALSE)
+  }
+  if (dp$domain == "dp" && length(char_vars) && dp$delta <= 0) {
+    stop(sprintf(paste0(
+      "DP set-union discovery of the category set for %s needs delta > 0 ",
+      "(a pure-epsilon threshold cannot hide a lone category's presence): set ",
+      "delta > 0, or convert the character column(s) to factors with public ",
+      "`levels`, or use domain = \"data\" (not accounted)."),
+      paste(char_vars, collapse = ", ")), call. = FALSE)
   }
   has_bound <- vapply(numeric_vars,
                       function(v) !is.null(dp$bounds[[v]]), logical(1))
@@ -322,22 +334,55 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     else if (bayes) 2L * d - 1L
     else if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
 
-  # Under domain = "dp", privately estimate bin edges for numeric variables that
-  # have no public bounds, spending an accounted `domain_frac` slice of budget.
+  # Under domain = "dp", spend an accounted `domain_frac` slice learning the
+  # domain: numeric bin edges (exponential-mechanism quantiles) and character
+  # category sets (DP set-union). The categorical set-union is a delta-consuming
+  # (eps_cat, delta_cat) mechanism composed separately; the remaining budget flows
+  # through the usual marginal / quantile calibration on an effective control
+  # `dpb` (dp with (eps, delta) reduced by the categorical carve). When there is no
+  # character column the carve is zero and `dpb` is identical to `dp`, so every
+  # existing release is byte-identical.
   est_vars <- if (dp$domain == "dp") missing_bound else character(0)
+  cat_vars <- if (dp$domain == "dp") char_vars else character(0)
   est_bounds <- NULL
+  est_levels <- NULL
   marg_frac <- 1
+  dpb <- dp
   domain_info <- list(mode = dp$domain, vars = character(0),
-                      eps_per_query = NA_real_, frac = 0)
+                      eps_per_query = NA_real_, frac = 0, categorical = NULL)
+
+  # Categorical carve first (it shares the domain slice with the numeric queries).
+  if (length(cat_vars) > 0L) {
+    g <- dp$domain_frac
+    C <- length(cat_vars)
+    n_ops <- 2L * length(est_vars) + C
+    eps_cat <- g * dp$epsilon * C / n_ops
+    # Laplace marginals consume no delta, so the whole delta backs the thresholds;
+    # Gaussian marginals need delta, so reserve only the domain fraction of it.
+    delta_cat <- if (dp$mechanism == "laplace") dp$delta else g * dp$delta
+    eps_op <- eps_cat / C
+    est_levels <- stats::setNames(
+      lapply(cat_vars, function(v)
+        dp_discover_categories(cdata[[v]], eps_op, delta_cat, C, cap)),
+      cat_vars)
+    dpb$epsilon <- dp$epsilon - eps_cat
+    dpb$delta   <- dp$delta - delta_cat
+    domain_info$categorical <- list(
+      vars = cat_vars, eps_op = eps_op, delta_cat = delta_cat,
+      n_kept = vapply(est_levels, length, integer(1)))
+  }
+
+  # Numeric bin-edge estimation on the (post-carve) effective budget `dpb`.
   if (length(est_vars) > 0L) {
     n_dom <- 2L * length(est_vars)
-    eps_q <- dp_quantile_eps(dp, n_dom, dp$domain_frac)
+    eps_q <- dp_quantile_eps(dpb, n_dom, dp$domain_frac)
     est_bounds <- stats::setNames(
       lapply(est_vars, function(v) dp_estimate_bounds(cdata[[v]], eps_q, cap)),
       est_vars)
     marg_frac <- 1 - dp$domain_frac
-    domain_info <- list(mode = dp$domain, vars = est_vars,
-                        eps_per_query = eps_q, frac = dp$domain_frac)
+    domain_info$vars <- est_vars
+    domain_info$eps_per_query <- eps_q
+    domain_info$frac <- dp$domain_frac
   }
 
   # Split the marginal budget between the (cheap) structure scan and the
@@ -361,17 +406,17 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     # the same (eps, delta) as the domain slice (zCDP rho adds; pure eps adds).
     sf <- dp$select_frac
     calib_struct <- NULL
-    calib <- dp_calibrate(dp, n_marginals, cap,
+    calib <- dp_calibrate(dpb, n_marginals, cap,
                           budget_frac = marg_frac * (1 - sf))
     if (isTRUE(dp$anneal)) {
       # Annealed schedule: hand the measurement and selection pools straight to
       # the engine, which spends them over a data-adaptive number of rounds.
       total <- if (dp$mechanism == "gaussian")
-        zcdp_rho_for(dp$epsilon, dp$delta) else dp$epsilon
+        zcdp_rho_for(dpb$epsilon, dpb$delta) else dpb$epsilon
       pool_meas_aim <- marg_frac * (1 - sf) * total
       pool_sel_aim  <- marg_frac * sf * total
     } else {
-      sel_eps_aim <- dp_select_eps(dp, n_rounds_aim, marg_frac * sf)
+      sel_eps_aim <- dp_select_eps(dpb, n_rounds_aim, marg_frac * sf)
       aim_info <- list(treewidth = w_aim, n_rounds = n_rounds_aim,
                        select_frac = sf, select_eps = sel_eps_aim,
                        meas_noise = if (calib$mechanism == "laplace")
@@ -383,17 +428,17 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     # compose exactly into the same (eps, delta) as the domain slice.
     sel_frac <- dp$select_frac
     calib_struct <- NULL
-    calib <- dp_calibrate(dp, n_marginals, cap,
+    calib <- dp_calibrate(dpb, n_marginals, cap,
                           budget_frac = marg_frac * (1 - sel_frac))
     if (isTRUE(dp$anneal)) {
       # Annealed schedule: hand the measurement and selection pools straight to
       # the engine, which spends them over a data-adaptive number of rounds.
       total <- if (dp$mechanism == "gaussian")
-        zcdp_rho_for(dp$epsilon, dp$delta) else dp$epsilon
+        zcdp_rho_for(dpb$epsilon, dpb$delta) else dpb$epsilon
       pool_meas <- marg_frac * (1 - sel_frac) * total
       pool_sel  <- marg_frac * sel_frac * total
     } else {
-      sel_eps <- dp_select_eps(dp, n_cliques, marg_frac * sel_frac)
+      sel_eps <- dp_select_eps(dpb, n_cliques, marg_frac * sel_frac)
       adapt_info <- list(treewidth = w_eff, n_cliques = n_cliques,
                          select_frac = sel_frac, select_eps = sel_eps,
                          meas_noise = if (calib$mechanism == "laplace")
@@ -406,21 +451,21 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     # slice (pure eps adds; zCDP rho adds).
     sf <- dp$select_frac
     calib_struct <- NULL
-    calib <- dp_calibrate(dp, n_marginals, cap,
+    calib <- dp_calibrate(dpb, n_marginals, cap,
                           budget_frac = marg_frac * (1 - sf))
-    sel_eps_bayes <- dp_select_eps(dp, d - 1L, marg_frac * sf)
+    sel_eps_bayes <- dp_select_eps(dpb, d - 1L, marg_frac * sf)
     bayes_info <- list(degree = deg_eff, n_nodes = d, n_families = d - 1L,
                        n_select = d - 1L, select_frac = sf,
                        select_eps = sel_eps_bayes,
                        meas_noise = if (calib$mechanism == "laplace")
                          calib$scale else calib$sigma)
     if (dp$mechanism == "gaussian") {
-      rho_total <- zcdp_rho_for(dp$epsilon, dp$delta)
+      rho_total <- zcdp_rho_for(dpb$epsilon, dpb$delta)
       bayes_info$rho_meas <- marg_frac * (1 - sf) * rho_total
       bayes_info$rho_sel  <- marg_frac * sf * rho_total
     } else {
-      bayes_info$eps_meas <- marg_frac * (1 - sf) * dp$epsilon
-      bayes_info$eps_sel  <- marg_frac * sf * dp$epsilon
+      bayes_info$eps_meas <- marg_frac * (1 - sf) * dpb$epsilon
+      bayes_info$eps_sel  <- marg_frac * sf * dpb$epsilon
     }
   } else if (use_learn) {
     n_struct <- n_pairs
@@ -435,10 +480,10 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
                          calib_struct$scale else calib_struct$sigma)
   } else {
     calib_struct <- NULL
-    calib <- dp_calibrate(dp, n_marginals, cap, budget_frac = marg_frac)
+    calib <- dp_calibrate(dpb, n_marginals, cap, budget_frac = marg_frac)
   }
 
-  dom <- dp_build_domain(cdata, vars, dp, est_bounds)
+  dom <- dp_build_domain(cdata, vars, dp, est_bounds, est_levels)
   nbins <- vapply(vars, function(v) dom[[v]]$nbin, integer(1))
   codes <- stats::setNames(
     lapply(vars, function(v) dp_encode(dom[[v]], cdata[[v]])), vars)

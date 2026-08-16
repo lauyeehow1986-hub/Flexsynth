@@ -73,8 +73,24 @@ default keeps the accounting honest without any work on your part:
   *excluded* from the accounting. Benchmarking only.
 
 Categorical columns carry their domain in their type, so pass them as `factor`
-(or `logical`) — their levels are public metadata. A bare `character` column is
-refused in the rigorous modes.
+(or `logical`) — their levels are public metadata. A bare `character` column has
+its category set **discovered under differential privacy** by DP set-union under the
+default `domain = "dp"`: each present category's count is noised and kept only if it
+clears a threshold that hides any category a single person could have created, and
+rare categories fold into an `"(other)"` catch-all. The cost comes out of the same
+`domain_frac` slice as numeric bin-edge estimation. Because a threshold cannot hide a
+lone category's presence at `delta = 0`, this needs `delta > 0` (a pure-\(\epsilon\)
+release, or `domain = "public"`, still requires public `factor` levels).
+
+```{r setunion}
+df_txt <- data.frame(id = seq_len(400),
+                     age = round(rnorm(400, 60, 8)),
+                     site = sample(c("north", "south", "east", "west"), 400, TRUE),
+                     stringsAsFactors = FALSE)          # site is bare character
+dp_txt <- dp_control(epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+                     bounds = list(age = c(18, 100)))
+synth(df_txt, ~ id, privacy = dp_txt, seed = 1)$privacy
+```
 
 For a clean, fully data-independent release with **no** budget spent on the
 domain, pass public ranges via `bounds`:

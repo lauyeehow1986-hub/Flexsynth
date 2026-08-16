@@ -187,13 +187,22 @@ test_that("domain='data' keeps the legacy warned, unaccounted behaviour", {
                  "derived from the data")
 })
 
-test_that("rigorous modes refuse a bare character column", {
+test_that("rigorous modes refuse a bare character column when it can't be private", {
   df <- flat_data()
   df$grp <- sample(c("a", "b"), nrow(df), TRUE)             # character, not factor
+  bnd <- list(age = c(20, 100), sbp = c(60, 240))
+  # domain = "public" always needs public factor levels for a character column.
+  expect_error(
+    synth(df, structure = ~ id,
+          privacy = dp_control(epsilon = 2, domain = "public", bounds = bnd),
+          seed = 1),
+    "public category set")
+  # domain = "dp" with pure-eps (delta = 0) cannot run DP set-union (needs delta).
   expect_error(
     synth(df, structure = ~ id, privacy = dp_control(epsilon = 2), seed = 1),
-    "public category set")
-  # Converting to a factor (public levels) makes it acceptable.
+    "delta > 0")
+  # Converting to a factor (public levels) makes it acceptable; and domain = "dp"
+  # with delta > 0 discovers the category set privately (see test-dp-setunion.R).
   df$grp <- factor(df$grp)
   expect_silent(synth(df, structure = ~ id,
                       privacy = dp_control(epsilon = 2, delta = 1e-6,

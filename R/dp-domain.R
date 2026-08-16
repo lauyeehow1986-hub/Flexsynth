@@ -37,8 +37,10 @@ dp_contribution_bound <- function(data, id, cap) {
   list(data = data[keep, , drop = FALSE], dropped = nrow(data) - length(keep))
 }
 
-# Build the domain object for one column.
-dp_domain_column <- function(v, nbin, bound = NULL) {
+# Build the domain object for one column. `levels` supplies a DP-discovered
+# category set for a character column (from dp_discover_categories); an "(other)"
+# catch-all cell is appended so undiscovered categories have a home.
+dp_domain_column <- function(v, nbin, bound = NULL, levels = NULL) {
   if (is.numeric(v)) {
     is_int <- is.integer(v) || all(v == round(v), na.rm = TRUE)
     if (!is.null(bound)) {
@@ -63,6 +65,12 @@ dp_domain_column <- function(v, nbin, bound = NULL) {
   } else if (is.logical(v)) {
     list(kind = "logical", levels = c("FALSE", "TRUE"), nbin = 2L,
          derived = FALSE)
+  } else if (!is.null(levels)) {
+    # DP-discovered character domain: the private level set plus an "(other)"
+    # catch-all for undiscovered categories. Public (accounted), so not derived.
+    lv <- c(as.character(levels), "(other)")
+    list(kind = "character", levels = lv, nbin = length(lv), derived = FALSE,
+         other_cell = length(lv))
   } else {
     lv <- sort(unique(as.character(v)))
     list(kind = "character", levels = lv, nbin = length(lv), derived = TRUE)
@@ -109,17 +117,37 @@ dp_estimate_bounds <- function(x, eps_q, cap) {
   b
 }
 
+# DP set-union: privately discover the category set of a character column via a
+# stability histogram. Each present category's count gets Laplace(cap / eps_op)
+# noise; a category is kept only if its noisy count clears a threshold that hides
+# any category a single person (contributing <= cap rows) could have created:
+#   tau = cap + (cap / eps_op) * log(C * cap / (2 * delta_cat))
+# where `C` is the number of character columns sharing the `delta_cat` budget (the
+# union bound runs over those columns and over the <= cap categories one person can
+# seed in a column). This is (eps_op, delta_cat)-DP by the standard unknown-domain
+# histogram argument. Returns the surviving levels, sorted; NA is dropped. Needs
+# delta_cat > 0 (a threshold cannot hide a lone category's presence at delta = 0).
+dp_discover_categories <- function(x, eps_op, delta_cat, C, cap) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0L) return(character(0))
+  tab <- table(x)
+  counts <- as.numeric(tab)
+  noisy <- counts + rlaplace(length(counts), scale = cap / eps_op)
+  tau <- cap + (cap / eps_op) * log((C * cap) / (2 * delta_cat))
+  sort(names(tab)[noisy >= tau])
+}
+
 # Build the full domain (a named list of column-domain objects) for `vars`.
 # `est_bounds` supplies DP-estimated numeric ranges (from dp_estimate_bounds);
 # together with the public `dp$bounds` these cover every numeric variable in the
 # rigorous modes. A warning fires only in the legacy `domain = "data"` mode,
 # where some edges are still read from the data and left out of the accounting.
-dp_build_domain <- function(data, vars, dp, est_bounds = NULL) {
+dp_build_domain <- function(data, vars, dp, est_bounds = NULL, est_levels = NULL) {
   dom <- stats::setNames(vector("list", length(vars)), vars)
   for (v in vars) {
     bound <- dp$bounds[[v]]
     if (is.null(bound)) bound <- est_bounds[[v]]
-    dom[[v]] <- dp_domain_column(data[[v]], dp$bins, bound)
+    dom[[v]] <- dp_domain_column(data[[v]], dp$bins, bound, est_levels[[v]])
   }
   derived <- vapply(dom, function(d) isTRUE(d$derived), logical(1))
   if (any(derived)) {
@@ -146,7 +174,10 @@ dp_encode <- function(col_dom, v) {
     key <- if (col_dom$kind == "logical") as.character(as.logical(v))
            else as.character(v)
     code <- match(key, col_dom$levels)
-    code[is.na(code)] <- 1L                 # unseen / NA -> first cell
+    # Unseen / NA -> the "(other)" catch-all for a DP-discovered character domain,
+    # else the first cell (public factor / logical / legacy character).
+    unseen <- if (!is.null(col_dom$other_cell)) col_dom$other_cell else 1L
+    code[is.na(code)] <- unseen
     as.integer(code)
   }
 }

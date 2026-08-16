@@ -1,5 +1,20 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: DP set-union discovers `character` category sets under
+  `domain = "dp"`.** A bare `character` column no longer has to be pre-converted to
+  a `factor`: under the default `domain = "dp"`, its present category set is
+  discovered privately with a **stability histogram** — each present category's
+  count gets Laplace noise and is kept only if it clears a threshold that hides any
+  category a single person could have created; rare/unique categories fold into an
+  appended `"(other)"` catch-all. The cost is funded from the same `domain_frac`
+  slice that numeric bin-edge estimation uses, and composes into the exact
+  (\eqn{\epsilon}, \eqn{\delta}). Because a threshold cannot hide a lone category's
+  presence at `delta = 0`, discovery **needs `delta > 0`**; a pure-\eqn{\epsilon}
+  release still refuses `character` (pointing to `delta > 0` or public `factor`
+  levels). Flat `synth()` only (linked / longitudinal still require public levels).
+  New internal `dp_discover_categories()`; releases with no `character` column are
+  byte-identical to before.
+
 * **Track B: model-projection candidate scoring is now the Full AIM default.**
   `dp_control(select = "aim")` now scores each candidate marginal in AIM's
   exponential-mechanism rounds against the **current reconciled Private-PGM model's

@@ -359,6 +359,13 @@ print.dp_accounting <- function(x, ...) {
     } else {
       cat("  bin edges :", dm$mode, "(public bounds; no budget spent)\n")
     }
+    ct <- dm$categorical
+    if (!is.null(ct)) {
+      cat("  categories: DP set-union discovered",
+          paste(paste0(ct$vars, " (", ct$n_kept, " kept)"), collapse = ", "),
+          paste0("(per-op eps ", signif(ct$eps_op, 3), ", delta ",
+                 format(ct$delta_cat, scientific = TRUE), ")\n"))
+    }
   }
   invisible(x)
 }

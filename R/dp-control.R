@@ -24,10 +24,15 @@
 #'   \item{`"dp"` (default)}{Rigorous and automatic. Numeric variables named in
 #'     `bounds` use those public edges at no cost; any other numeric variable has
 #'     its working range **estimated under differential privacy** (a clamp-free
-#'     exponential-mechanism quantile at each end), and that estimation spends an
-#'     accounted slice `domain_frac` of the budget. The reported
-#'     (\eqn{\epsilon}, \eqn{\delta}) is therefore exact end to end — discretisation
-#'     adds no unaccounted leakage.}
+#'     exponential-mechanism quantile at each end). A bare `character` column has
+#'     its **category set discovered under differential privacy** by DP set-union (a
+#'     stability histogram: each present category's noisy count must clear a
+#'     threshold that hides any category a single person could have created; rare
+#'     categories fold into an `"(other)"` catch-all). Both estimations spend an
+#'     accounted slice `domain_frac` of the budget, so the reported
+#'     (\eqn{\epsilon}, \eqn{\delta}) is exact end to end. DP set-union needs
+#'     `delta > 0` (a threshold cannot hide a lone category's presence at
+#'     `delta = 0`), so a pure-\eqn{\epsilon} release still refuses `character`.}
 #'   \item{`"public"`}{Fully data-independent and free: every numeric variable
 #'     **must** be given a public range in `bounds` (an error is raised otherwise)
 #'     and no budget is spent on the domain. The recommended mode when public
@@ -336,17 +341,20 @@
 #' @param bounds Optional named list giving `c(lower, upper)` for numeric
 #'   variables, used as public, data-independent bin edges. How variables *not*
 #'   named here are handled depends on `domain`.
-#' @param domain How numeric bin edges are chosen for variables without a public
-#'   range in `bounds`: `"dp"` (default) estimates them under differential privacy
-#'   and accounts for the cost; `"public"` requires `bounds` for every numeric
-#'   variable (error otherwise) and spends no budget on the domain; `"data"` reads
-#'   them from the data range with a warning and *excludes* that step from the
-#'   accounting (non-rigorous; benchmarking only).
-#' @param domain_frac Fraction of the privacy budget spent estimating bin edges
-#'   under `domain = "dp"` (default `0.1`). Split evenly across the two
-#'   quantile queries per estimated variable and composed with the marginal
-#'   measurements, so the total spend is exactly (\eqn{\epsilon}, \eqn{\delta}).
-#'   Ignored unless some numeric variable actually needs estimating.
+#' @param domain How the discrete domain is chosen for variables without public
+#'   metadata: `"dp"` (default) estimates numeric bin edges — and discovers bare
+#'   `character` category sets by DP set-union — under differential privacy and
+#'   accounts for the cost; `"public"` requires `bounds` for every numeric variable
+#'   and public `factor` levels for every categorical (error otherwise) and spends
+#'   no budget on the domain; `"data"` reads edges / levels from the data with a
+#'   warning and *excludes* that step from the accounting (non-rigorous;
+#'   benchmarking only).
+#' @param domain_frac Fraction of the privacy budget spent learning the domain
+#'   under `domain = "dp"` (default `0.1`) — numeric bin edges (exponential-mechanism
+#'   quantiles) and `character` category sets (DP set-union). The slice is shared
+#'   across those operations and composed with the marginal measurements, so the
+#'   total spend is exactly (\eqn{\epsilon}, \eqn{\delta}). Ignored unless some
+#'   numeric variable needs estimating or some `character` column needs discovering.
 #'
 #' @return An object of class `dp_control` (a validated list).
 #' @export

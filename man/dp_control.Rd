@@ -349,18 +349,21 @@ are largely unaffected (bin contents are decoded uniformly within the bin).}
 variables, used as public, data-independent bin edges. How variables \emph{not}
 named here are handled depends on \code{domain}.}
 
-\item{domain}{How numeric bin edges are chosen for variables without a public
-range in \code{bounds}: \code{"dp"} (default) estimates them under differential privacy
-and accounts for the cost; \code{"public"} requires \code{bounds} for every numeric
-variable (error otherwise) and spends no budget on the domain; \code{"data"} reads
-them from the data range with a warning and \emph{excludes} that step from the
-accounting (non-rigorous; benchmarking only).}
+\item{domain}{How the discrete domain is chosen for variables without public
+metadata: \code{"dp"} (default) estimates numeric bin edges — and discovers bare
+\code{character} category sets by DP set-union — under differential privacy and
+accounts for the cost; \code{"public"} requires \code{bounds} for every numeric variable
+and public \code{factor} levels for every categorical (error otherwise) and spends
+no budget on the domain; \code{"data"} reads edges / levels from the data with a
+warning and \emph{excludes} that step from the accounting (non-rigorous;
+benchmarking only).}
 
-\item{domain_frac}{Fraction of the privacy budget spent estimating bin edges
-under \code{domain = "dp"} (default \code{0.1}). Split evenly across the two
-quantile queries per estimated variable and composed with the marginal
-measurements, so the total spend is exactly (\eqn{\epsilon}, \eqn{\delta}).
-Ignored unless some numeric variable actually needs estimating.}
+\item{domain_frac}{Fraction of the privacy budget spent learning the domain
+under \code{domain = "dp"} (default \code{0.1}) — numeric bin edges (exponential-mechanism
+quantiles) and \code{character} category sets (DP set-union). The slice is shared
+across those operations and composed with the marginal measurements, so the
+total spend is exactly (\eqn{\epsilon}, \eqn{\delta}). Ignored unless some
+numeric variable needs estimating or some \code{character} column needs discovering.}
 }
 \value{
 An object of class \code{dp_control} (a validated list).
@@ -391,10 +394,15 @@ presence. \code{domain} controls this:
 \item{\code{"dp"} (default)}{Rigorous and automatic. Numeric variables named in
 \code{bounds} use those public edges at no cost; any other numeric variable has
 its working range \strong{estimated under differential privacy} (a clamp-free
-exponential-mechanism quantile at each end), and that estimation spends an
-accounted slice \code{domain_frac} of the budget. The reported
-(\eqn{\epsilon}, \eqn{\delta}) is therefore exact end to end — discretisation
-adds no unaccounted leakage.}
+exponential-mechanism quantile at each end). A bare \code{character} column has
+its \strong{category set discovered under differential privacy} by DP set-union (a
+stability histogram: each present category's noisy count must clear a
+threshold that hides any category a single person could have created; rare
+categories fold into an \code{"(other)"} catch-all). Both estimations spend an
+accounted slice \code{domain_frac} of the budget, so the reported
+(\eqn{\epsilon}, \eqn{\delta}) is exact end to end. DP set-union needs
+\code{delta > 0} (a threshold cannot hide a lone category's presence at
+\code{delta = 0}), so a pure-\eqn{\epsilon} release still refuses \code{character}.}
 \item{\code{"public"}}{Fully data-independent and free: every numeric variable
 \strong{must} be given a public range in \code{bounds} (an error is raised otherwise)
 and no budget is spent on the domain. The recommended mode when public

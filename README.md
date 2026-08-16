@@ -125,7 +125,12 @@ dp_res$privacy                           # the (ε, δ) accounting record
 DP works for a flat table (`~ id`), a longitudinal one (`~ id / visit`, a DP
 Markov model over visits), and a whole linked hierarchy (`synth_linked(...,
 privacy = dp_control(...))`, at the root-entity grain) — all with exact
-Laplace / zCDP-Gaussian accounting. For a linked release,
+Laplace / zCDP-Gaussian accounting. Under the default `domain = "dp"`, numeric bin
+edges are estimated privately and a bare `character` column's category set is
+discovered by **DP set-union** (a stability histogram; rare categories fold into an
+`"(other)"` catch-all), both funded from `domain_frac` and composed into the exact
+budget — so a flat `character` column needs no pre-conversion to a `factor` (this
+needs `delta > 0`; a pure-ε release still requires public levels). For a linked release,
 `dp_control(cross_table = TRUE)` additionally conditions each child table's
 variables on the synthetic parent's attributes (measured parent-by-child joints,
 composed into the same budget), so cross-table dependence survives — not just the
