@@ -1,4 +1,10 @@
-# flexsynth 0.0.0.9000
+# flexsynth 0.1.0
+
+First public release: a flexible sequential-synthesis engine for nested,
+longitudinal and linked multi-table data (Track A, high-utility default) with an
+opt-in differentially private track (Track B) providing a formal person-level
+(\eqn{\epsilon}, \eqn{\delta}) guarantee. The notes below summarise what shipped.
+
 
 * **Track B: DP set-union discovers `character` category sets under
   `domain = "dp"`.** A bare `character` column no longer has to be pre-converted to

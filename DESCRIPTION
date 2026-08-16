@@ -1,7 +1,7 @@
 Package: flexsynth
 Type: Package
 Title: Flexible Synthetic Data for Nested, Longitudinal and Linked Multi-Table Data
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: person(given = "Yee How", family = "Lau",
     email = "lauyeehow1986@gmail.com", role = c("aut", "cre"))
 Description: Generates high-quality synthetic data from real datasets of any

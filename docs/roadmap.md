@@ -336,7 +336,9 @@ engine; Track B is the opt-in differentially private engine.
       still refuses `character`. New internal `dp_discover_categories`; flat `synth()`
       only; releases with no `character` column are byte-identical. Linked / longitudinal
       `character` discovery remains a follow-up.
-- Future: tagging a stable 0.1.0 for CRAN.
+- **Released in 0.1.0** (tagged `v0.1.0`, published as a GitHub release with the
+  source tarball attached; installable via
+  `remotes::install_github("lauyeehow1986-hub/Flexsynth")`).
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -357,9 +359,8 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7;
-  adaptive-selection structure
-  learning beyond the fixed Chow-Liu split (AIM-style); DP set-union for
-  discovering `character` category sets under `domain = "dp"` (currently public
-  factor levels are required); and CRAN submission once a stable `0.1.0` API is
-  tagged.
+- Future: linked / longitudinal DP `character` discovery (flat `synth()` set-union
+  shipped in 0.1.0; nested and multi-table paths still require public factor levels);
+  the further DP extensions listed under Phase 7; and CRAN submission — the `0.1.0`
+  API is now tagged, pending a clean full `--as-cran` run once the local TeX/pandoc
+  toolchain is completed (Courier font metric + pandoc + qpdf).
