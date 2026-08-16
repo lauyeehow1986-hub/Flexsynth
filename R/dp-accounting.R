@@ -199,8 +199,11 @@ print.dp_accounting <- function(x, ...) {
               else paste0("child of ", ti$parent, ", <=", ti$local_cap,
                           "/parent, path cap ", ti$path_cap,
                           if (isTRUE(ti$cross)) ", cond. on parent" else "",
-                          if (isTRUE(ti$longitudinal)) ", DP Markov over rows"
-                          else "")
+                          if (isTRUE(ti$longitudinal)) {
+                            if (isTRUE(ti$cross_init))
+                              ", DP Markov over rows (initial state cond. on parent)"
+                            else ", DP Markov over rows"
+                          } else "")
       cat(sprintf("    - %-14s %s%s\n", ti$name, role,
                   if (ti$rows_dropped > 0)
                     paste0(" (", ti$rows_dropped, " rows dropped)") else ""))

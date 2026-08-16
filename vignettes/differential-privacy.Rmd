@@ -438,16 +438,44 @@ have person-sensitivity `path_cap[parent] * (branching_cap - 1)` while the
 initial-state marginals sit at the parent path cap — heterogeneous, but folded into
 the same exact $(\epsilon, \delta)$. Over-cap units are prefix-truncated in temporal
 order so their consecutive pairs stay intact. This keeps a patient's status
-*trending* across visits, the autocorrelation an exchangeable child would drop. A
-longitudinally-modelled table is not simultaneously `cross_table`-conditioned — it
-conditions on its own past, not the parent.
+*trending* across visits, the autocorrelation an exchangeable child would drop.
+
+### Combining cross-table conditioning with a longitudinal child
+
+Setting `cross_table = TRUE` **together with** a longitudinal model on the same
+child combines the two: the child's **initial-state** model is cross-conditioned on
+the synthetic parent — the first row of each unit draws from a parent-conditioned
+Chow-Liu tree — and the within-unit transition chain then carries that parent
+dependence across the trajectory. The parent shapes where a trajectory *starts*;
+the transitions stay parent-free, so the only extra cost is the `nC * nP`
+parent-by-child initial-state joints, at the same first-row sensitivity as the
+initial marginals:
+
+```{r linked-longi-cross}
+dp_both <- dp_control(
+  epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+  max_rows_per_person = c(visits = 6), longitudinal = "visits",
+  cross_table = TRUE, domain = "public", bounds = list(age = c(18, 100)))
+
+res_both <- synth_linked(
+  tables     = list(patients = patients, visits = visits),
+  structures = list(patients = ~ id, visits = ~ id / visit_num),
+  keys       = list(patients = "id", visits = c("id", "visit_num")),
+  privacy    = dp_both, seed = 1)
+res_both$privacy
+```
+
+The accounting now lists `visits` as `DP Markov over rows (initial state cond. on
+parent)`. A patient's whole `status` trajectory can then inherit a dependence on
+their baseline attributes, not just autocorrelate with itself.
 
 ## What Track B does *not* do (yet)
 
 - **Cross-table conditioning beyond the immediate parent** is not modelled;
   `cross_table = TRUE` conditions each child on its immediate parent only.
-- **Cross-table conditioning *and* longitudinal transitions on the same child
-  table** are mutually exclusive — a child is modelled one way or the other.
+- **Cross-conditioning a longitudinal child's *transitions*** is not modelled: the
+  parent conditions the initial state (and thus, through autocorrelation, the whole
+  trajectory), but each within-unit step $P(v_t \mid v_{t-1})$ stays parent-free.
 - Constraints (`rule()`) are refused under DP, because data-dependent rejection
   sampling would leak information the budget does not account for.
 - `baseline` (columns held exactly constant within a person) and the

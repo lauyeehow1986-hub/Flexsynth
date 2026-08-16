@@ -1,5 +1,19 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: cross-table conditioning and longitudinal transitions now combine on
+  the same linked child.** Previously a longitudinally-modelled child table
+  (`dp_control(longitudinal = ...)`) could not also be cross-conditioned on its
+  parent — `longitudinal` silently won. Now setting `cross_table = TRUE` alongside
+  a longitudinal model on the same table cross-conditions that table's
+  **initial-state** model on the synthetic parent (the first row of each unit draws
+  from a parent-conditioned Chow-Liu tree), and the within-unit transition chain
+  then carries that parent dependence across the whole trajectory. The parent
+  shapes where a trajectory starts; the transitions stay parent-free, so the only
+  extra cost is the `nC * nP` parent-by-child initial-state joints, measured at the
+  same first-row sensitivity as the initial marginals and folded into the same
+  exact (\eqn{\epsilon}, \eqn{\delta}) composition. A non-longitudinal child still
+  cross-conditions all its rows exactly as before, and setting neither flag is
+  unchanged.
 * **Track B: higher-order and cross-variable DP transitions.** The flat DP Markov
   longitudinal engine can now condition a variable's next value on more than its
   own single previous value. `dp_control(transition_order = k)` uses the last `k`

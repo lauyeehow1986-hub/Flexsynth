@@ -146,9 +146,9 @@ engine; Track B is the opt-in differentially private engine.
   heterogeneous — initial marginals at the parent path cap, transitions at
   path_cap[parent] * (branching_cap - 1) — and fold into the same exact
   composition; over-cap units are prefix-truncated in temporal order so consecutive
-  pairs stay intact. A longitudinally-modelled table is not simultaneously
-  cross-conditioned. `longitudinal = FALSE` (default) unchanged; inert for flat /
-  longitudinal `synth()`.
+  pairs stay intact. `longitudinal = FALSE` (default) unchanged; inert for flat /
+  longitudinal `synth()`. (A longitudinal child can now *also* be cross-conditioned
+  on its parent — see the post-Phase-8 combined item below.)
 - [x] **Budget-efficient structure learning** (`dp_control(structure_frac = f)`,
   flat `dependence = "tree"` release). Instead of measuring all \eqn{\binom{d}{2}}
   pairwise marginals at full fidelity and discarding all but the tree's edges, a
@@ -182,13 +182,21 @@ engine; Track B is the opt-in differentially private engine.
   budget (a tuple still lands in one cell); a higher order lowers the transition
   sensitivity to `cap - order`, so composition stays exact and `order <=
   max_rows_per_person - 1`. Defaults `k = 1, m = 0` reproduce the first-order model.
+- [x] **Combined cross-table + longitudinal DP on one child** (`dp_control(
+  longitudinal = ..., cross_table = TRUE)` on the same linked child table). The two
+  no longer exclude each other: a longitudinal child's **initial-state** model is
+  cross-conditioned on the synthetic parent (its first row draws from a
+  parent-conditioned Chow-Liu tree), and the within-unit transition chain carries
+  that parent dependence across the trajectory. The parent shapes where a trajectory
+  starts; transitions stay parent-free, so the only extra cost is the `nC * nP`
+  parent-by-child initial-state joints, at the same first-row sensitivity as the
+  initial marginals — folded into the same exact (\eqn{\epsilon}, \eqn{\delta}).
 - Future: PrivBayes
-  greedy degree>1 networks and AIM-style adaptive marginal selection; combining
-  cross-table conditioning *and* longitudinal transitions on the same child table
-  (currently mutually exclusive per table); extending `baseline` and the
-  higher-order / cross-variable transition model to a longitudinally-modelled linked
-  child table (both currently flat `synth()` only). (Data-independent / DP-estimated
-  bin edges are done; see the post-Phase-8 item below.)
+  greedy degree>1 networks and AIM-style adaptive marginal selection; extending
+  `baseline` and the higher-order / cross-variable transition model to a
+  longitudinally-modelled linked child table (both currently flat `synth()` only).
+  (Data-independent / DP-estimated bin edges are done; see the post-Phase-8 item
+  below.)
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /
@@ -209,8 +217,7 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: the further DP extensions listed under Phase 7 (combining cross-table
-  conditioning with longitudinal transitions on one child table, and carrying the
+- Future: the further DP extensions listed under Phase 7 (carrying the
   baseline / higher-order transition models into linked child tables);
   adaptive-selection structure
   learning beyond the fixed Chow-Liu split (AIM-style); DP set-union for

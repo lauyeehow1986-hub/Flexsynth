@@ -96,12 +96,16 @@ child table (a child with a branching cap \eqn{\ge} 2 and at least one
 variable), or a character vector of child-table names to model only those.
 The child's branching cap in \code{max_rows_per_person} bounds the transition
 sensitivity, so it must be \eqn{\ge} 2 for a named table, and the prefix of
-that many rows is kept in temporal order. A longitudinally-modelled table is
-not simultaneously \code{cross_table}-conditioned (it conditions on its own past,
-not the parent); if both name it, \code{longitudinal} wins for that table. \code{FALSE}
-(default) treats child rows as exchangeable. Ignored by flat / longitudinal
-\code{synth()} releases (which pick the DP Markov engine straight from the
-\code{structure} formula).}
+that many rows is kept in temporal order. Setting \code{cross_table = TRUE}
+together with a longitudinal model on the same table \strong{combines} them: the
+table's initial-state model is cross-conditioned on the synthetic parent
+(adding the parent-by-child joints at the same first-row sensitivity as the
+initial marginals), and the transition chain then carries that parent
+dependence across the trajectory — the parent shapes where a trajectory
+starts, while the transitions stay parent-free, so the only extra cost is the
+initial-state joints. \code{FALSE} (default) treats child rows as exchangeable.
+Ignored by flat / longitudinal \code{synth()} releases (which pick the DP Markov
+engine straight from the \code{structure} formula).}
 
 \item{baseline}{Longitudinal \code{synth()} only (a \code{structure} with a nesting
 index). Names of \strong{subject-invariant} columns — baseline covariates that do

@@ -89,8 +89,22 @@ dp_longi_n_init <- function(nC, dp) {
 # `fk` the foreign-key columns identifying the parent unit; `own` the child's own
 # key index (the temporal order within a unit); `dom` / `vars` / `nbins` the
 # child's discretisation. Returns a model consumed by dp_markov_codes().
+#
+# When `parent_ctx` / `parent_nbins` are supplied (combined cross-table +
+# longitudinal, dp_control(cross_table = TRUE) on a longitudinal child) the
+# INITIAL-STATE model is cross-conditioned on the synthetic parent's attributes:
+# the first row of each unit draws from a seeded Chow-Liu tree over the parent's
+# variables plus the child's, instead of the child's own marginals. `parent_ctx`
+# is the named per-parent-var code list aligned to `cdata_t`'s original rows (from
+# dp_parent_ctx_codes()); it is reordered to the temporal layout and restricted to
+# first rows here. The transition model is unchanged - the parent shapes where a
+# trajectory starts, and within-unit autocorrelation carries that dependence
+# forward. Cross-conditioning the initial state adds parent-by-child joints at the
+# same first-row (parent path-cap) sensitivity as the initial marginals, so it
+# folds into the same exact composition.
 dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
-                                      dp, calib) {
+                                      dp, calib,
+                                      parent_ctx = NULL, parent_nbins = NULL) {
   # Order rows so each parent unit's children are contiguous and temporal.
   ord <- do.call(order, c(lapply(fk, function(c) cdata_t[[c]]),
                           list(cdata_t[[own]])))
@@ -105,11 +119,20 @@ dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
   cur_rows   <- which(pos > 1L)
   prev_rows  <- cur_rows - 1L                 # contiguous & ordered -> same unit
 
-  # Initial-state model over first rows (reuses the flat marginal fitter, so it
-  # honours dp$dependence exactly like the root/child variable models).
+  # Initial-state model over first rows. Plain: the flat marginal fitter, which
+  # honours dp$dependence exactly like the root/child variable models. Cross: the
+  # parent-conditioned child fitter over the same first rows, with the parent
+  # context aligned to the temporal layout and restricted to first rows.
   init_codes <- stats::setNames(
     lapply(vars, function(v) codes[[v]][first_rows]), vars)
-  init_model <- dp_fit_model(init_codes, nbins, dp, calib)
+  init_cross <- !is.null(parent_ctx) && length(parent_ctx) > 0L
+  if (init_cross) {
+    pctx_first <- lapply(parent_ctx, function(x) x[ord][first_rows])
+    init_model <- dp_fit_child_cross(init_codes, nbins, pctx_first, parent_nbins,
+                                     dp, calib)
+  } else {
+    init_model <- dp_fit_model(init_codes, nbins, dp, calib)
+  }
 
   # Transition matrices over consecutive within-unit pairs.
   if (length(cur_rows)) {
@@ -127,5 +150,5 @@ dp_fit_child_longitudinal <- function(cdata_t, fk, own, dom, vars, nbins,
   }
 
   list(kind = "child-longi", vars = vars, nbins = nbins,
-       init_model = init_model, tran = tran)
+       init_model = init_model, tran = tran, init_cross = init_cross)
 }

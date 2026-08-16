@@ -196,7 +196,7 @@ test_that("over-cap longitudinal units are prefix-truncated in temporal order", 
   expect_equal(by_tbl(res)$visits$rows_dropped, 30L)
 })
 
-test_that("longitudinal = TRUE models every eligible child; cross_table does not override it", {
+test_that("longitudinal = TRUE + cross_table combine: initial state is cross-conditioned", {
   d <- lk_longi(np = 60, seed = 5)
   dp <- dp_control(epsilon = 8, mechanism = "laplace", dependence = "tree",
                    max_rows_per_person = c(visits = 4L),
@@ -204,7 +204,8 @@ test_that("longitudinal = TRUE models every eligible child; cross_table does not
   res <- synth_linked(d$tables, d$structures, d$keys, privacy = dp, seed = 1)
   bt <- by_tbl(res)
   expect_true(bt$visits$longitudinal)
-  expect_false(bt$visits$cross)                        # longitudinal wins over cross
+  expect_true(bt$visits$cross_init)                    # init state conditions on parent
+  expect_false(bt$visits$cross)                        # not plain (all-row) cross
   expect_false(bt$patients$longitudinal)               # root is never longitudinal
 })
 

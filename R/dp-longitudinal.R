@@ -77,14 +77,21 @@ dp_draw_lengths <- function(Lprob, n_persons, k) {
 # vector over `vars` (default all FALSE): a held (subject-invariant / baseline)
 # variable is drawn once in the initial row and then carried forward unchanged, so
 # it stays exactly constant within the unit instead of stepping a transition.
-dp_markov_codes <- function(init_model, tran, ppos, vars, held = NULL) {
+# `first_codes` (default NULL) lets the caller supply the first-row code matrix
+# (n_first x nV, columns aligned to `vars`) instead of drawing it from
+# `init_model` - used when the initial state is cross-conditioned on a synthetic
+# parent (the caller draws it from the parent-conditioned model). When supplied,
+# `init_model` is not consulted for the first rows.
+dp_markov_codes <- function(init_model, tran, ppos, vars, held = NULL,
+                            first_codes = NULL) {
   nV <- length(vars)
   if (is.null(held)) held <- logical(nV)
   N  <- length(ppos)
   cmat <- matrix(NA_integer_, N, nV, dimnames = list(NULL, vars))
   if (!N) return(cmat)
   frows <- which(ppos == 1L)
-  cmat[frows, ] <- dp_sample_codes(init_model, length(frows))
+  cmat[frows, ] <- if (is.null(first_codes))
+    dp_sample_codes(init_model, length(frows)) else first_codes
   tmax <- max(ppos)
   for (tt in seq_len(tmax)[-1L]) {           # t = 2, 3, ...
     rows_t <- which(ppos == tt)

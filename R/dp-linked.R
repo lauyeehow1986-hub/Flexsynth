@@ -46,7 +46,12 @@
 # the child's own key index (an initial-state model + per-variable transition
 # matrices), with the children-per-parent count model doubling as the length
 # model, so within-unit autocorrelation survives (see dp-linked-longitudinal.R).
-# A longitudinally-modelled table is not simultaneously cross-conditioned.
+# When cross_table = TRUE is set together with a longitudinal model on the same
+# table the two combine: the table's INITIAL-STATE model is cross-conditioned on
+# the synthetic parent (parent-by-child joints at the first-row sensitivity), and
+# the transition chain then carries that parent dependence across the trajectory.
+# The transitions themselves stay parent-free, so the extra cost is exactly the
+# initial-state joints.
 #
 # Remaining scope (documented in the DP vignette): only the IMMEDIATE parent
 # conditions a child (deeper ancestors reach it through the parent's synthesised
@@ -236,29 +241,44 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
   }
 
   # Which child tables condition on their parent (cross-table DP): opt-in, needs a
-  # modellable immediate parent and >= 1 own variable, and is not superseded by a
-  # longitudinal model on the same table (which conditions on its own past, not
-  # the parent). Computed once so composition and the fitted models agree exactly.
-  use_cross <- stats::setNames(logical(length(order)), order)
-  for (t in order) {
+  # modellable immediate parent and >= 1 own variable. A non-longitudinal child
+  # cross-conditions ALL its rows (use_cross); a longitudinal child instead
+  # cross-conditions only its INITIAL-STATE model (use_long_cross), letting the
+  # transition chain carry that parent dependence forward. Computed once so
+  # composition and the fitted models agree exactly.
+  cross_ok <- function(t) {
     p <- hierarchy$parent[[t]]
-    use_cross[[t]] <- isTRUE(dp$cross_table) && !use_long[[t]] && !is.na(p) &&
+    isTRUE(dp$cross_table) && !is.na(p) &&
       length(vars[[t]]) > 0L && length(vars[[p]]) > 0L
+  }
+  use_cross      <- stats::setNames(logical(length(order)), order)
+  use_long_cross <- stats::setNames(logical(length(order)), order)
+  for (t in order) {
+    ok <- cross_ok(t)
+    use_cross[[t]]      <- ok && !use_long[[t]]
+    use_long_cross[[t]] <- ok &&  use_long[[t]]
   }
 
   # Per-table VARIABLE-model release: total L1, summed squared L2, and histogram
   # count. A longitudinal child releases initial-state marginals (at the parent
   # path cap) plus one transition matrix per variable (at parent path cap *
-  # (branching cap - 1)); other tables release plain / cross-conditioned variable
-  # marginals at their own path cap. The children-per-parent count histogram is
-  # added separately below (it doubles as the length model for longitudinal
-  # tables, so no extra length histogram is charged).
+  # (branching cap - 1)); when it is also cross-conditioned the initial-state
+  # count picks up the nC * nP parent-by-child joints (still at the parent path
+  # cap). Other tables release plain / cross-conditioned variable marginals at
+  # their own path cap. The children-per-parent count histogram is added
+  # separately below (it doubles as the length model for longitudinal tables, so
+  # no extra length histogram is charged).
   var_release <- function(t) {
     nC <- length(vars[[t]])
     if (use_long[[t]]) {
       pcp <- as.numeric(caps$path[[hierarchy$parent[[t]]]])
       lc  <- as.numeric(caps$local[[t]])
-      ni  <- dp_longi_n_init(nC, dp)
+      # Initial-state marginals: plain n_init, or (combined cross-table) the
+      # cross-conditioned count that adds nC * nP parent-by-child joints - all at
+      # the same first-row (parent path-cap) sensitivity as the init marginals.
+      ni  <- if (use_long_cross[[t]])
+        dp_child_nvarmarg(nC, length(vars[[hierarchy$parent[[t]]]]), dp)
+      else dp_longi_n_init(nC, dp)
       ts  <- pcp * (lc - 1)                                # transition sensitivity
       list(l1 = ni * pcp + nC * ts,
            sq = ni * pcp^2 + nC * ts^2,
@@ -332,9 +352,19 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
     long_model  <- NULL
     if (length(vt)) {
       if (use_long[[t]]) {
+        parent_ctx <- NULL; parent_nbins <- NULL
+        if (use_long_cross[[t]]) {                # cross-condition the init state
+          p <- hierarchy$parent[[t]]
+          pvars <- fit[[p]]$vars
+          parent_dom <- fit[[p]]$dom
+          parent_ctx <- dp_parent_ctx_codes(cdata, hierarchy, t, p, parent_dom,
+                                             pvars)
+          parent_nbins <- stats::setNames(
+            vapply(pvars, function(u) parent_dom[[u]]$nbin, integer(1)), pvars)
+        }
         long_model <- dp_fit_child_longitudinal(
           cdata[[t]], hierarchy$fk[[t]], hierarchy$own[[t]], dom, vt, nbins,
-          dp, calib)
+          dp, calib, parent_ctx, parent_nbins)
       } else {
         codes <- stats::setNames(
           lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)
@@ -410,7 +440,20 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
         if (length(f$vars)) {
           if (!is.null(f$long_model)) {
             lm <- f$long_model
-            cmat <- dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars)
+            if (isTRUE(lm$init_cross)) {
+              # Seed each unit's first row from the parent-conditioned initial
+              # model, using the synthetic parent's codes at that first row.
+              im     <- lm$init_model
+              frows  <- which(ppos == 1L)
+              pctx_f <- stats::setNames(
+                lapply(im$pvars, function(u) codes[[p]][rep_rows[frows], u]),
+                im$pvars)
+              first_codes <- dp_sample_child_codes(im, pctx_f, length(frows))
+              cmat <- dp_markov_codes(im, lm$tran, ppos, f$vars,
+                                      first_codes = first_codes)
+            } else {
+              cmat <- dp_markov_codes(lm$init_model, lm$tran, ppos, f$vars)
+            }
           } else if (!is.null(f$cross_model)) {
             pvars <- f$cross_model$pvars
             pctx <- stats::setNames(
@@ -445,6 +488,7 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
          path_cap = caps$path[[t]],
          n_var_marg = var_release(t)$nhist,
          cross = use_cross[[t]],
+         cross_init = use_long_cross[[t]],
          longitudinal = use_long[[t]],
          count_sensitivity = if (is.na(p)) NA_integer_ else caps$path[[p]],
          rows_dropped = dropped[[t]])

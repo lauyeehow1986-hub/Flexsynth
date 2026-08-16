@@ -105,12 +105,16 @@
 #'   variable), or a character vector of child-table names to model only those.
 #'   The child's branching cap in `max_rows_per_person` bounds the transition
 #'   sensitivity, so it must be \eqn{\ge} 2 for a named table, and the prefix of
-#'   that many rows is kept in temporal order. A longitudinally-modelled table is
-#'   not simultaneously `cross_table`-conditioned (it conditions on its own past,
-#'   not the parent); if both name it, `longitudinal` wins for that table. `FALSE`
-#'   (default) treats child rows as exchangeable. Ignored by flat / longitudinal
-#'   `synth()` releases (which pick the DP Markov engine straight from the
-#'   `structure` formula).
+#'   that many rows is kept in temporal order. Setting `cross_table = TRUE`
+#'   together with a longitudinal model on the same table **combines** them: the
+#'   table's initial-state model is cross-conditioned on the synthetic parent
+#'   (adding the parent-by-child joints at the same first-row sensitivity as the
+#'   initial marginals), and the transition chain then carries that parent
+#'   dependence across the trajectory — the parent shapes where a trajectory
+#'   starts, while the transitions stay parent-free, so the only extra cost is the
+#'   initial-state joints. `FALSE` (default) treats child rows as exchangeable.
+#'   Ignored by flat / longitudinal `synth()` releases (which pick the DP Markov
+#'   engine straight from the `structure` formula).
 #' @param baseline Longitudinal `synth()` only (a `structure` with a nesting
 #'   index). Names of **subject-invariant** columns — baseline covariates that do
 #'   not change across a person's rows (e.g. birth sex, a baseline measurement).
