@@ -248,6 +248,34 @@ refinement can only sharpen the cliques it already measured, not add loopy
 marginals; annealing helps most when there are few variables and the fixed
 schedule would otherwise leave budget unspent.
 
+**PrivBayes networks (`degree = k`).** A Chow-Liu tree is a degree-1 Bayesian
+network: every variable conditions on one parent. `dp_control(dependence = "tree",
+degree = k)` opts into **GreedyBayes** — a degree-`k` network in which each
+variable may condition on up to `k` of the already-generated variables, its parent
+set chosen greedily with the exponential mechanism (scored by the parents-to-node
+association, so internally-correlated parents are not preferred over the parents a
+node truly depends on). Unlike the adaptive junction tree — whose parents must lie
+inside one existing clique — a degree-`k` network can give a node *any* `k`
+predecessors, so it captures a variable that depends on two otherwise-unrelated
+parents (a v-structure) that a tree cannot represent at any budget:
+
+```{r bayes-degree}
+dp_bayes <- dp_control(epsilon = 6, delta = 1e-6, mechanism = "gaussian",
+                       dependence = "tree", degree = 2,
+                       bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_bayes, seed = 1)$privacy
+```
+
+It measures the `d` one-way marginals plus one `(parents, node)` family joint per
+non-root node (`2d - 1` marginals) and spends a `select_frac` slice on the `d - 1`
+greedy picks; every slice composes into the same exact \((\epsilon, \delta)\). The
+network is forward-sampled ancestrally, so like the tree it needs no PGM inference.
+`degree` is capped to `d - 1`, and — being a distinct structure search — it is an
+alternative to `structure_frac` and to `select = "adaptive"` (setting either
+alongside `degree > 1` is an error). Raising `degree` makes each family a
+`(degree + 1)`-way histogram, so the same cell-count caution as a high `treewidth`
+applies.
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

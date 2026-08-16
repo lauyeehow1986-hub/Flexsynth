@@ -244,9 +244,25 @@ engine; Track B is the opt-in differentially private engine.
       remainder, so the release is exactly (\eqn{\epsilon}, \eqn{\delta}) over a
       **variable** round count. The `treewidth` cap is lifted to allow `>= 3`
       (four-way and higher cliques), with a cell-blow-up warning.
-- Future: PrivBayes greedy degree>1 networks; and — to spend refinement budget on
-  *loopy* marginals rather than only re-measuring existing cliques — a Private-PGM
-  inference step (the piece this PGM-free sampler deliberately omits).
+- [x] **PrivBayes degree>1 Bayesian networks** (`dp_control(dependence = "tree",
+      degree = k)`, flat `synth()` release). Generalises the Chow-Liu tree (a
+      degree-1 network) to **GreedyBayes**: each variable may condition on up to
+      `degree` already-generated variables, its parent set chosen greedily with the
+      **exponential mechanism** scored by the parents → node association (so
+      internally-correlated parents are not preferred over the parents a node truly
+      depends on). Unlike a bounded-treewidth junction tree — whose parents must lie
+      inside one existing clique — a degree-`k` network can give a node any `k`
+      predecessors, so it recovers a v-structure (a node depending on two otherwise-
+      unrelated parents, e.g. a noisy XOR) a tree structurally cannot. Measures `d`
+      one-ways + `d - 1` `(parents, node)` family joints (`2d - 1` marginals) and
+      spends a `select_frac` slice on the `d - 1` greedy picks; every slice composes
+      into the same exact (\eqn{\epsilon}, \eqn{\delta}). Forward-sampled ancestrally
+      (no PGM inference); `degree` capped to `d - 1`; alternative to
+      `structure_frac` / `select = "adaptive"`; refused on longitudinal / linked
+      releases. `degree = 1` (default) leaves the tree path byte-identical.
+- Future: to spend budget on *loopy* marginals (whether from adaptive refinement or
+  a denser Bayesian network) rather than only re-measuring existing cliques, a
+  Private-PGM inference step — the piece these PGM-free samplers deliberately omit.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

@@ -12,6 +12,7 @@ dp_control(
   mechanism = c("laplace", "gaussian"),
   dependence = c("tree", "independent"),
   structure_frac = NULL,
+  degree = 1L,
   select = c("fixed", "adaptive"),
   treewidth = 1L,
   select_frac = 0.25,
@@ -72,6 +73,29 @@ of variables grows. Both passes compose into the same exact
 (\eqn{\epsilon}, \eqn{\delta}) budget. Inert for \code{dependence = "independent"},
 for fewer than three variables (the tree is then trivial), and for
 longitudinal / linked DP releases (which keep the single-pass fitter).}
+
+\item{degree}{Fan-in of the Bayesian network fitted for a flat \code{synth()}
+\code{dependence = "tree"} release. \code{1} (default) keeps the Chow-Liu tree exactly
+as before (each variable conditions on at most one parent). \code{2} or more opts
+into \strong{PrivBayes' GreedyBayes}: a degree-\code{k} Bayesian network in which each
+variable may condition on up to \code{degree} of the already-generated variables,
+its parent set chosen greedily with the \strong{exponential mechanism} (the parents
+whose joint the variable depends on most, crediting the parents\eqn{\to}child
+association only). Because a tree gives a variable a single parent, it cannot
+represent a variable that genuinely depends on two otherwise-unrelated
+predecessors (a "v-structure", e.g. \code{C} a noisy XOR of independent \code{A} and
+\code{B}); a degree-2 network takes both parents and recovers it. Construction
+measures the \code{d} one-way marginals plus one \verb{(parents, node)} family joint per
+non-root node (\verb{2d - 1} marginals total) and spends a \code{select_frac} slice on
+the \code{d - 1} greedy picks; every slice composes into the same exact
+(\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure \eqn{\epsilon} for
+Laplace). The network is forward-sampled ancestrally (no PGM inference), so
+like the tree it stays inference-free. \code{degree} is capped to \code{d - 1}, and a
+high fan-in makes each family a \code{(degree + 1)}-way histogram — the same
+\code{bins^(degree + 1)} cell-count warning as \code{treewidth} applies. Requires
+\code{dependence = "tree"}; it is an \strong{alternative} to \code{structure_frac} and to
+\code{select = "adaptive"} (setting either alongside \code{degree > 1} is an error), and
+is refused on longitudinal / linked releases. Ignored when \code{degree = 1}.}
 
 \item{select}{How the marginals that make up the model are chosen, for a flat
 \code{\link[=synth]{synth()}} release. \code{"fixed"} (default) measures a predetermined set (all

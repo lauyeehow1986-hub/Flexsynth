@@ -1,5 +1,24 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: PrivBayes degree>1 Bayesian networks.** `dp_control(dependence =
+  "tree", degree = k)` generalises the Chow-Liu tree (a degree-1 Bayesian
+  network) to **GreedyBayes**: a degree-`k` network in which each variable may
+  condition on up to `k` of the already-generated variables. Each parent set is
+  chosen greedily with the **exponential mechanism**, scored by the
+  parents\eqn{\to}node association only (so a near-duplicate parent pair is not
+  preferred over the parents a node truly depends on). Because a tree gives a
+  variable a single parent, it cannot represent a variable that depends on two
+  otherwise-unrelated predecessors (a v-structure, e.g. `C` a noisy XOR of
+  independent `A` and `B`); a degree-2 network takes both parents and recovers it.
+  Construction measures the `d` one-way marginals plus one `(parents, node)`
+  family joint per non-root node (`2d - 1` marginals) and spends a `select_frac`
+  slice on the `d - 1` greedy picks; every slice composes into the same exact
+  (\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure \eqn{\epsilon} for
+  Laplace). The network is forward-sampled ancestrally, so like the tree it needs
+  no PGM inference. `degree` is capped to `d - 1`, shares the
+  `bins^(degree + 1)` cell-count warning, is an **alternative** to `structure_frac`
+  and `select = "adaptive"`, and is refused on longitudinal / linked releases.
+  `degree = 1` (default) leaves the Chow-Liu path byte-identical.
 * **Track B: AIM-style budget annealing and higher treewidth for adaptive
   selection.** `dp_control(select = "adaptive")` gains `anneal = TRUE`, a
   data-adaptive round schedule in place of the fixed `d - treewidth` rounds. The

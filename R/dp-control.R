@@ -78,6 +78,28 @@
 #'   (\eqn{\epsilon}, \eqn{\delta}) budget. Inert for `dependence = "independent"`,
 #'   for fewer than three variables (the tree is then trivial), and for
 #'   longitudinal / linked DP releases (which keep the single-pass fitter).
+#' @param degree Fan-in of the Bayesian network fitted for a flat `synth()`
+#'   `dependence = "tree"` release. `1` (default) keeps the Chow-Liu tree exactly
+#'   as before (each variable conditions on at most one parent). `2` or more opts
+#'   into **PrivBayes' GreedyBayes**: a degree-`k` Bayesian network in which each
+#'   variable may condition on up to `degree` of the already-generated variables,
+#'   its parent set chosen greedily with the **exponential mechanism** (the parents
+#'   whose joint the variable depends on most, crediting the parents\eqn{\to}child
+#'   association only). Because a tree gives a variable a single parent, it cannot
+#'   represent a variable that genuinely depends on two otherwise-unrelated
+#'   predecessors (a "v-structure", e.g. `C` a noisy XOR of independent `A` and
+#'   `B`); a degree-2 network takes both parents and recovers it. Construction
+#'   measures the `d` one-way marginals plus one `(parents, node)` family joint per
+#'   non-root node (`2d - 1` marginals total) and spends a `select_frac` slice on
+#'   the `d - 1` greedy picks; every slice composes into the same exact
+#'   (\eqn{\epsilon}, \eqn{\delta}) (zCDP for Gaussian, pure \eqn{\epsilon} for
+#'   Laplace). The network is forward-sampled ancestrally (no PGM inference), so
+#'   like the tree it stays inference-free. `degree` is capped to `d - 1`, and a
+#'   high fan-in makes each family a `(degree + 1)`-way histogram — the same
+#'   `bins^(degree + 1)` cell-count warning as `treewidth` applies. Requires
+#'   `dependence = "tree"`; it is an **alternative** to `structure_frac` and to
+#'   `select = "adaptive"` (setting either alongside `degree > 1` is an error), and
+#'   is refused on longitudinal / linked releases. Ignored when `degree = 1`.
 #' @param select How the marginals that make up the model are chosen, for a flat
 #'   [synth()] release. `"fixed"` (default) measures a predetermined set (all
 #'   one-way marginals, plus — for `dependence = "tree"` — pairwise marginals),
@@ -271,6 +293,7 @@ dp_control <- function(epsilon,
                        mechanism = c("laplace", "gaussian"),
                        dependence = c("tree", "independent"),
                        structure_frac = NULL,
+                       degree = 1L,
                        select = c("fixed", "adaptive"),
                        treewidth = 1L,
                        select_frac = 0.25,
@@ -331,6 +354,28 @@ dp_control <- function(epsilon,
            call. = FALSE)
     }
     structure_frac <- as.numeric(structure_frac)
+  }
+  if (!is.numeric(degree) || length(degree) != 1L || is.na(degree) ||
+      degree < 1 || degree != as.integer(degree)) {
+    stop("`degree` must be a single integer >= 1.", call. = FALSE)
+  }
+  degree <- as.integer(degree)
+  if (degree > 1L) {
+    if (dependence != "tree") {
+      stop(paste0("`degree` > 1 builds a Bayesian network and needs ",
+                  "`dependence = \"tree\"` (a tree is a degree-1 network)."),
+           call. = FALSE)
+    }
+    if (!is.null(structure_frac)) {
+      stop(paste0("`degree` > 1 and `structure_frac` are alternative structure ",
+                  "learners for the tree model; set structure_frac = NULL."),
+           call. = FALSE)
+    }
+    if (select == "adaptive") {
+      stop(paste0("`degree` > 1 (a Bayesian network) and `select = \"adaptive\"` ",
+                  "(a junction tree) are alternative structure searches; pick ",
+                  "one."), call. = FALSE)
+    }
   }
   if (!is.numeric(treewidth) || length(treewidth) != 1L || is.na(treewidth) ||
       treewidth < 1 || treewidth != as.integer(treewidth)) {
@@ -405,18 +450,24 @@ dp_control <- function(epsilon,
       bins != as.integer(bins)) {
     stop("`bins` must be a single integer >= 2.", call. = FALSE)
   }
-  # Adaptive selection at high treewidth makes each clique a (treewidth + 1)-way
-  # histogram; over `bins` cells per axis that is bins^(treewidth + 1) cells, and
-  # past a point the per-cell noise swamps the signal. Warn on that (bins is the
-  # numeric-variable proxy; low-cardinality factor cliques are smaller).
-  if (select == "adaptive") {
-    max_cells <- as.numeric(bins)^(treewidth + 1L)
+  # A high-order family makes each measured histogram a (order + 1)-way table;
+  # over `bins` cells per axis that is bins^(order + 1) cells, and past a point
+  # the per-cell noise swamps the signal. The order is the treewidth for adaptive
+  # junction cliques, or the degree for a Bayesian network. Warn on that (bins is
+  # the numeric-variable proxy; low-cardinality factor families are smaller).
+  fam_order <- if (select == "adaptive") treewidth else if (degree > 1L) degree
+               else 0L
+  if (fam_order > 0L) {
+    max_cells <- as.numeric(bins)^(fam_order + 1L)
     if (max_cells > 5e4) {
-      warning(sprintf(paste0("treewidth %d makes each clique up to bins^%d = ",
-                             "%.0f cells; at that width the per-cell DP noise can ",
-                             "dominate the signal (bins is the numeric proxy; ",
+      what <- if (select == "adaptive") c("treewidth", "clique")
+              else c("degree", "family")
+      warning(sprintf(paste0("%s %d makes each %s up to bins^%d = %.0f cells; ",
+                             "at that width the per-cell DP noise can dominate ",
+                             "the signal (bins is the numeric proxy; ",
                              "low-cardinality factors are smaller)."),
-                      treewidth, treewidth + 1L, max_cells), call. = FALSE)
+                      what[1L], fam_order, what[2L], fam_order + 1L, max_cells),
+              call. = FALSE)
     }
   }
   if (!is.null(bounds)) {
@@ -446,6 +497,7 @@ dp_control <- function(epsilon,
       mechanism = mechanism,
       dependence = dependence,
       structure_frac = structure_frac,          # NULL or number in (0, 1)
+      degree = degree,                          # integer >= 1 (Bayesian network)
       select = select,                          # "fixed" or "adaptive"
       treewidth = treewidth,                    # integer >= 1 (adaptive only)
       select_frac = select_frac,                # number in (0, 1) (adaptive only)
@@ -476,6 +528,9 @@ print.dp_control <- function(x, ...) {
   if (!is.null(x$structure_frac))
     cat("  structure : budget-efficient (", signif(x$structure_frac, 3),
         " of budget selects the tree)\n", sep = "")
+  if (!is.null(x$degree) && x$degree > 1L)
+    cat("  network   : degree-", x$degree, " Bayesian network (GreedyBayes; ",
+        signif(x$select_frac, 3), " of budget selects parents)\n", sep = "")
   if (identical(x$select, "adaptive"))
     cat("  select    : adaptive AIM-style, treewidth ", x$treewidth,
         if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "

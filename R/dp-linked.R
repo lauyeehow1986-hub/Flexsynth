@@ -198,6 +198,11 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
                 "and is not supported for a linked DP release. Use the default ",
                 "select = \"fixed\"."), call. = FALSE)
   }
+  if (dp$degree > 1L) {
+    stop(paste0("degree > 1 (a Bayesian network) is currently flat-table only ",
+                "and is not supported for a linked DP release. Use degree = 1."),
+         call. = FALSE)
+  }
   if (dp$unit == "row") {
     stop(paste0("linked DP: unit = \"row\" is not supported; the privacy unit ",
                 "of a linked release is the root entity. Use unit = \"person\"."),

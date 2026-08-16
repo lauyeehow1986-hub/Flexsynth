@@ -201,6 +201,108 @@ dp_fit_model_adaptive <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
        marginals = p1, n_est = n_est, treewidth = w)
 }
 
+# Fit a degree-k Bayesian network (PrivBayes' GreedyBayes) over the discrete
+# cells. Unlike the bounded-treewidth junction tree, a node's parents may be any
+# already-added variables (not a w-subset of one existing clique), so it can hold
+# a variable's dependence on several otherwise-unrelated predecessors -- the model
+# family the Chow-Liu tree (degree 1) generalises to. Construction: measure the d
+# one-way marginals under the shared measurement noise; pick a max-entropy root
+# (post-processing of the noisy one-ways, so free); then repeatedly, for each
+# not-yet-added node and each size-min(degree, |added|) parent set drawn from the
+# added nodes, score the candidate family by the L1 gap between its true counts
+# and the model-so-far's product reference (sensitivity `cap`) and privately pick
+# one with the exponential mechanism (`sel_eps` per round). Each chosen family's
+# (parents, node) joint is measured under the shared noise and stored as
+# P(node | parents). The result is stored in the junction model's shape (root
+# clique + per-node sep / new / cond), so `dp_sample_codes_junction` samples it
+# ancestrally unchanged -- the running-intersection constraint only mattered
+# during the search. `degree` is capped to d - 1 (a node has at most d - 1
+# predecessors), matching how the adaptive fitter caps the treewidth.
+dp_fit_model_bayes <- function(codes, nbins, dp, calib, degree, sel_eps, cap) {
+  d <- length(codes)
+  vars <- names(codes)
+  idx_all <- seq_len(d)
+  deg <- min(as.integer(degree), d - 1L)
+
+  # One-way marginals, measured under the shared measurement noise.
+  c1 <- lapply(idx_all, function(i) pmax(calib$add_noise(tabulate(codes[[i]], nbins[i])), 0))
+  names(c1) <- vars
+  p1 <- lapply(c1, dp_normalise)
+  n_est <- max(1, round(mean(vapply(c1, sum, numeric(1)))))
+
+  # Expected absolute measurement noise per cell -- discourages a large, sparse
+  # family whose measurement would be swamped by noise (the AIM quality score).
+  noise_abs <- if (calib$mechanism == "laplace") calib$scale else calib$sigma * sqrt(2 / pi)
+
+  # Measure a family (variables in any order) under the shared noise, in sorted-
+  # variable order, returning its clipped noisy count array.
+  measure_family <- function(fvars) {
+    sv <- sort(fvars)
+    comps <- lapply(sv, function(v) codes[[v]])
+    ok <- Reduce(`&`, lapply(comps, function(x) !is.na(x)))
+    comps <- lapply(comps, function(x) x[ok])
+    dims <- nbins[sv]
+    cnt <- tabulate(dp_combo_index(comps, dims), nbins = prod(dims))
+    array(pmax(calib$add_noise(cnt), 0), dim = dims)
+  }
+  # GreedyBayes score for a family `fvars = c(sorted parents, node)`: the L1 gap
+  # between the true joint P(parents, node) and P(parents) x P(node), minus the
+  # noise penalty. This credits only the parents -> node dependence (the mutual
+  # information the network would gain), NOT any correlation *among* the parents
+  # -- so a near-duplicate parent pair is not preferred over the parents the node
+  # actually depends on. The whole score is a function of the one true family
+  # histogram, so its sensitivity is `cap`, as elsewhere.
+  score_family <- function(fvars) {
+    arr <- dp_true_joint_array(codes, fvars, nbins)   # dims: parents..., node
+    n <- sum(arr)
+    if (n <= 0) return(-Inf)
+    dpar <- length(fvars) - 1L
+    pv <- apply(arr, dpar + 1L, sum) / n              # P(node)
+    ppar <- if (dpar == 1L) apply(arr, 1L, sum) / n
+            else as.vector(apply(arr, seq_len(dpar), sum)) / n  # P(parents)
+    ref <- as.vector(outer(as.vector(ppar), pv)) * n  # independence expectation
+    sum(abs(as.vector(arr) - ref)) - length(arr) * noise_abs
+  }
+
+  # Root = the max-entropy one-way (free post-processing of the noisy marginals).
+  ent <- vapply(p1, function(p) { p <- p[p > 0]; -sum(p * log(p)) }, numeric(1))
+  root <- which.max(ent)
+  added <- root
+  cliques <- vector("list", d)
+  cliques[[1L]] <- list(vars = root, sep = integer(0), new = root,
+                        joint = p1[[root]])
+
+  step <- 1L
+  while (length(added) < d) {
+    uncovered <- setdiff(idx_all, added)
+    k <- min(deg, length(added))
+    # Guard combn's single-integer footgun: combn(x, m) treats a length-1 x as
+    # seq_len(x), so a lone parent index > 1 would fabricate bogus parents.
+    parent_sets <- if (length(added) == k) list(added)
+                   else utils::combn(added, k, simplify = FALSE)
+    cand <- list(); cand_scores <- numeric(0)
+    for (v in uncovered) for (P in parent_sets) {
+      Ps <- sort(P)
+      cand[[length(cand) + 1L]] <- list(P = Ps, v = v)
+      cand_scores <- c(cand_scores, score_family(c(Ps, v)))
+    }
+    pick <- cand[[dp_exp_select(cand_scores, sel_eps, cap)]]
+    P <- pick$P; v <- pick$v
+    fam <- sort(c(P, v))
+    A <- measure_family(fam)
+    posP <- match(P, fam); posV <- match(v, fam)
+    B <- apply(A, c(posP, posV), sum)                # dims: parents... then v
+    cond <- matrix(as.vector(B), prod(nbins[P]), nbins[v])
+    cond <- t(apply(cond, 1L, dp_normalise))         # P(v | parents), rows=combo
+    step <- step + 1L
+    cliques[[step]] <- list(vars = fam, sep = P, new = v, cond = cond)
+    added <- c(added, v)
+  }
+
+  list(kind = "bayes", vars = vars, nbins = nbins, cliques = cliques,
+       marginals = p1, n_est = n_est, degree = deg)
+}
+
 # Inverse-variance ("precision-weighted") combination of two independent noisy
 # measurements of the same array. Both `A1` and `A2` estimate the same true
 # counts, with per-cell noise parameters `p1` and `p2` (Gaussian sd, or Laplace

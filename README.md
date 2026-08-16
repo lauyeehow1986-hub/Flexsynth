@@ -172,7 +172,15 @@ marginal can see). Adding `anneal = TRUE` turns the fixed `d - treewidth` schedu
 into an **AIM-style data-adaptive** one: rounds start noisy and the per-round
 budget **doubles** whenever a measurement fails its noise floor, then any surplus
 budget re-measures the worst-fit clique — all still composing to the exact same
-(ε, δ) over a variable number of rounds. See `vignette("differential-privacy")`
+(ε, δ) over a variable number of rounds. Separately,
+`dp_control(dependence = "tree", degree = k)` generalises the Chow-Liu tree (a
+degree-1 Bayesian network) to **PrivBayes' GreedyBayes**: each variable may
+condition on up to `k` already-generated variables, its parent set chosen greedily
+by the exponential mechanism. Because a tree gives a variable one parent, it
+cannot represent a variable that depends on two otherwise-unrelated predecessors (a
+v-structure, e.g. `C` a noisy XOR of independent `A` and `B`); a degree-2 network
+takes both parents and recovers it — all composing to the same exact (ε, δ), and
+still forward-sampled with no PGM inference. See `vignette("differential-privacy")`
 for scope and the honest utility trade-off.
 
 ## Learn more

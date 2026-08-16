@@ -144,7 +144,7 @@ dp_fit_model <- function(codes, nbins, dp, calib, calib_struct = NULL) {
 
 # Draw one synthetic dataset of `n` rows (matrix of cell codes, n x d).
 dp_sample_codes <- function(model, n) {
-  if (identical(model$kind, "junction")) return(dp_sample_codes_junction(model, n))
+  if (model$kind %in% c("junction", "bayes")) return(dp_sample_codes_junction(model, n))
   d <- length(model$vars)
   out <- matrix(NA_integer_, n, d, dimnames = list(NULL, model$vars))
   if (model$kind == "independent" || d <= 1L) {
@@ -184,6 +184,11 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
     stop(paste0("select = \"adaptive\" (AIM-style) is currently flat-table only; ",
                 "this structure is longitudinal. Use the default select = \"fixed\" ",
                 "for a longitudinal DP release."), call. = FALSE)
+  }
+  if (dp$degree > 1L && length(st$nested) > 0L) {
+    stop(paste0("degree > 1 (a Bayesian network) is currently flat-table only; ",
+                "this structure is longitudinal. Use degree = 1 for a ",
+                "longitudinal DP release."), call. = FALSE)
   }
   if (length(st$nested) > 0L) {
     return(synth_dp_longitudinal(data, st, structure, dp, tuning, m, seed))
@@ -229,14 +234,22 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   adaptive <- identical(dp$select, "adaptive") && d >= 2L
   w_eff <- if (adaptive) min(dp$treewidth, d - 1L) else NA_integer_
   n_cliques <- if (adaptive) d - w_eff else 0L
-  n_pairs <- if (!adaptive && dp$dependence == "tree" && d > 1L)
+  # GreedyBayes: a degree-k Bayesian network (each node conditions on up to
+  # `degree` already-generated predecessors, chosen by the exponential mechanism).
+  # Generalises the Chow-Liu tree (degree 1); needs at least two variables and the
+  # degree is capped to d - 1 (see dp-adaptive.R).
+  bayes <- !adaptive && dp$degree > 1L && dp$dependence == "tree" && d >= 2L
+  deg_eff <- if (bayes) min(dp$degree, d - 1L) else NA_integer_
+  n_pairs <- if (!adaptive && !bayes && dp$dependence == "tree" && d > 1L)
     d * (d - 1L) / 2L else 0L
   # Budget-efficient structure learning: a separate cheap pairwise scan selects
   # the tree, then only its d-1 edges (plus d one-ways) are re-measured. Trivial
   # for < 3 variables, so it is inert there (and for the independent model).
-  use_learn <- !adaptive && !is.null(dp$structure_frac) &&
+  use_learn <- !adaptive && !bayes && !is.null(dp$structure_frac) &&
     dp$dependence == "tree" && d >= 3L
+  # A degree-k network measures d one-ways + (d - 1) family joints = 2d - 1.
   n_marginals <- if (adaptive) d + n_cliques
+    else if (bayes) 2L * d - 1L
     else if (use_learn) n_pairs + (2L * d - 1L) else d + n_pairs
 
   # Under domain = "dp", privately estimate bin edges for numeric variables that
@@ -263,6 +276,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   # eps adds; zCDP rho adds.
   learn_info <- NULL
   adapt_info <- NULL
+  bayes_info <- NULL
+  sel_eps_bayes <- NULL
   pool_meas <- NULL
   pool_sel <- NULL
   if (adaptive) {
@@ -286,6 +301,29 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
                          select_frac = sel_frac, select_eps = sel_eps,
                          meas_noise = if (calib$mechanism == "laplace")
                            calib$scale else calib$sigma)
+    }
+  } else if (bayes) {
+    # Marginal budget splits into a selection slice (the d - 1 exponential-
+    # mechanism parent-set picks) and a measurement slice (the 2d - 1 measured
+    # marginals); both compose exactly into the same (eps, delta) as the domain
+    # slice (pure eps adds; zCDP rho adds).
+    sf <- dp$select_frac
+    calib_struct <- NULL
+    calib <- dp_calibrate(dp, n_marginals, cap,
+                          budget_frac = marg_frac * (1 - sf))
+    sel_eps_bayes <- dp_select_eps(dp, d - 1L, marg_frac * sf)
+    bayes_info <- list(degree = deg_eff, n_nodes = d, n_families = d - 1L,
+                       n_select = d - 1L, select_frac = sf,
+                       select_eps = sel_eps_bayes,
+                       meas_noise = if (calib$mechanism == "laplace")
+                         calib$scale else calib$sigma)
+    if (dp$mechanism == "gaussian") {
+      rho_total <- zcdp_rho_for(dp$epsilon, dp$delta)
+      bayes_info$rho_meas <- marg_frac * (1 - sf) * rho_total
+      bayes_info$rho_sel  <- marg_frac * sf * rho_total
+    } else {
+      bayes_info$eps_meas <- marg_frac * (1 - sf) * dp$epsilon
+      bayes_info$eps_sel  <- marg_frac * sf * dp$epsilon
     }
   } else if (use_learn) {
     n_struct <- n_pairs
@@ -318,6 +356,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
       dp_fit_model_adaptive(codes, nbins, dp, calib, w_eff,
                             adapt_info$select_eps, cap)
     }
+  } else if (bayes) {
+    dp_fit_model_bayes(codes, nbins, dp, calib, dp$degree, sel_eps_bayes, cap)
   } else dp_fit_model(codes, nbins, dp, calib, calib_struct)
   # The annealed path measures a data-adaptive number of histograms (d one-ways +
   # the realised clique rounds); report that actual count.
@@ -335,7 +375,8 @@ synth_dp <- function(data, st, structure, dp, tuning, m, seed) {
   syn <- if (m == 1L) syns[[1L]] else syns
 
   acct <- new_dp_accounting(dp, calib, cap, n_marg_report, vars, bounded$dropped,
-                            domain_info, learn = learn_info, adaptive = adapt_info)
+                            domain_info, learn = learn_info, adaptive = adapt_info,
+                            bayes = bayes_info)
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data),
     method = stats::setNames(rep(paste0("dp-", dp$mechanism), length(vars)), vars),
