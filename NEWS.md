@@ -1,3 +1,17 @@
+# flexsynth 0.1.1
+
+* **Bug fix: `method = "ctree"` on a bare `character` target.** The `partykit`
+  conditional-inference-tree method fitted the tree with the raw response column,
+  which tripped `partykit:::.y2infl()` with "unknown response class" whenever the
+  synthesised column was a plain `character` vector (`rpart`-backed `cart`
+  tolerated it, so this only surfaced under `ctree`). The response is now coerced
+  to a factor for the fit while draws still return the original values. This was
+  caught by win-builder R-devel, where `partykit` is available and the guarded
+  test actually runs.
+* Documentation: the README link to the roadmap now points at its GitHub URL
+  (the `docs/` directory is not shipped in the package), and an `inst/WORDLIST`
+  records the intentional British spellings used in the DESCRIPTION.
+
 # flexsynth 0.1.0
 
 First public release: a flexible sequential-synthesis engine for nested,

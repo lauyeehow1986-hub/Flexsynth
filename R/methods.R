@@ -211,7 +211,11 @@ ctree_fit <- function(y, x, control) {
     bi <- sample.int(length(y), length(y), replace = TRUE)
     yy <- y[bi]; x <- x[bi, , drop = FALSE]
   }
-  df  <- data.frame(.y = yy, x, check.names = FALSE)
+  # partykit::ctree needs a factor/numeric response; a bare character (or
+  # logical) column trips ".y2infl: unknown response class". Coerce for the fit
+  # only -- draws still sample the original values held in `yy`.
+  resp <- if (is.character(yy) || is.logical(yy)) factor(yy) else yy
+  df  <- data.frame(.y = resp, x, check.names = FALSE)
   fit <- partykit::ctree(stats::as.formula(".y ~ ."), data = df)
   node <- predict(fit, type = "node")
   list(fit = fit, y = yy, tr_leaf = as.integer(node), xref = x)

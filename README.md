@@ -228,7 +228,7 @@ The cheaper one-way-product reference remains available as
 - `vignette("nested-longitudinal")` — repeated-measures data
 - `vignette("linked-cardiac")` — multi-table linked synthesis
 - `vignette("differential-privacy")` — Track B
-- [`docs/roadmap.md`](docs/roadmap.md) — phased delivery and what's next
+- [`docs/roadmap.md`](https://github.com/lauyeehow1986-hub/Flexsynth/blob/main/docs/roadmap.md) — phased delivery and what's next
 
 ## Data & privacy
 
