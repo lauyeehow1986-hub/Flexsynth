@@ -1,5 +1,21 @@
 # flexsynth 0.0.0.9000
 
+* **Track B: annealed Full AIM.** `dp_control(select = "aim", anneal = TRUE)` runs
+  Full AIM on the same **data-adaptive \eqn{\sigma}-halving schedule** that
+  `select = "adaptive"` already offers, instead of the fixed
+  `min(d(d-1)/2, treewidth·(d-1))` rounds. The `d` one-way marginals take a fair
+  fixed share; the pairwise measurements and their exponential-mechanism selections
+  start at a small per-round quantum (large noise) and **double** whenever a round's
+  measured signal fails to beat its noise floor. A baseline of treewidth-capped
+  *new* loopy pairs is selected first, then any **surplus** budget re-measures the
+  worst-fit already-measured pair (inverse-variance combined). The measurement and
+  selection pools stay strictly proportional through every doubling and reserve, so
+  they deplete in lockstep and the final round absorbs the exact remainder — the
+  total spend is still exactly (\eqn{\epsilon}, \eqn{\delta}), now over a **variable**
+  number of rounds chosen from the data. As in the fixed-round case the annealed set
+  is triangulated and reconciled with **Private-PGM**, so refinement sharpens loopy
+  marginals (not just tree cliques). Flat-table only.
+
 * **Track B: Full AIM.** `dp_control(select = "aim")` lifts the running-intersection
   constraint on the `select = "adaptive"` junction-tree selector, so the
   exponential mechanism may pick *loopy* marginals — a pairwise marginal between two

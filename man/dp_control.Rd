@@ -155,24 +155,26 @@ modest slice usually gives the best fidelity (the same intuition as
 (\eqn{\epsilon}, \eqn{\delta}). Ignored unless \code{select = "adaptive"} or
 \code{select = "aim"}.}
 
-\item{anneal}{Adaptive selection only. \code{FALSE} (default) uses the fixed
-\code{d - treewidth}-round schedule with a uniform per-round budget. \code{TRUE} opts
-into \strong{AIM-style budget annealing} — a data-adaptive round schedule: the
-\code{d} one-way marginals take a fair fixed share, then the clique measurements
+\item{anneal}{Adaptive (\code{"adaptive"} / \code{"aim"}) selection only. \code{FALSE}
+(default) uses a fixed-round schedule with a uniform per-round budget. \code{TRUE}
+opts into \strong{AIM-style budget annealing} — a data-adaptive round schedule: the
+\code{d} one-way marginals take a fair fixed share, then the marginal measurements
 and their exponential-mechanism selections start at a small per-round quantum
 (large noise) and \strong{double} whenever a round's measured signal fails to beat
-its noise floor (AIM's \eqn{\sigma}-halving rule). After the mandatory
-\code{d - treewidth} spanning cliques — which guarantee every variable is covered,
-keeping the sampler inference-free — any \strong{surplus} budget is spent on extra
-rounds that re-measure the worst-fit existing clique (inverse-variance
-combined, so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round
-absorbs the exact remainder, so the total spend is still exactly
-(\eqn{\epsilon}, \eqn{\delta}) — now over a \strong{variable} number of rounds
-chosen from the data. Because the model stays a spanning junction tree (no
-PGM inference), refinement can only sharpen the measured cliques, not add
-loopy marginals; it is most useful when there are few variables and the fixed
+its noise floor (AIM's \eqn{\sigma}-halving rule). After a baseline number of
+selection rounds — the spanning cliques for \code{"adaptive"}, the treewidth-capped
+new pairs for \code{"aim"} — any \strong{surplus} budget is spent on extra rounds that
+re-measure the worst-fit already-measured marginal (inverse-variance combined,
+so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round absorbs the exact
+remainder, so the total spend is still exactly (\eqn{\epsilon}, \eqn{\delta})
+— now over a \strong{variable} number of rounds chosen from the data. For
+\code{select = "adaptive"} the model stays a spanning junction tree (no PGM
+inference), so refinement can only sharpen the measured cliques; for
+\code{select = "aim"} the annealed set is triangulated and reconciled with
+Private-PGM exactly as in the fixed-round AIM, so refinement sharpens loopy
+marginals too. It is most useful when there are few variables and the fixed
 schedule would otherwise leave budget on the table. Ignored unless
-\code{select = "adaptive"}; setting it without adaptive selection is an error.}
+\code{select = "adaptive"} or \code{select = "aim"}; setting it otherwise is an error.}
 
 \item{estimator}{How the measured marginals are turned into the generative
 model, for a flat \code{\link[=synth]{synth()}} tree or adaptive release. \code{"local"} (default)

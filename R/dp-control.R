@@ -146,24 +146,26 @@
 #'   of that order genuinely matter. For `select = "aim"` it bounds the model's
 #'   *triangulated* clique size the same way (so `1` forbids loops and `2` permits
 #'   triangles). Ignored unless `select = "adaptive"` or `select = "aim"`.
-#' @param anneal Adaptive selection only. `FALSE` (default) uses the fixed
-#'   `d - treewidth`-round schedule with a uniform per-round budget. `TRUE` opts
-#'   into **AIM-style budget annealing** — a data-adaptive round schedule: the
-#'   `d` one-way marginals take a fair fixed share, then the clique measurements
+#' @param anneal Adaptive (`"adaptive"` / `"aim"`) selection only. `FALSE`
+#'   (default) uses a fixed-round schedule with a uniform per-round budget. `TRUE`
+#'   opts into **AIM-style budget annealing** — a data-adaptive round schedule: the
+#'   `d` one-way marginals take a fair fixed share, then the marginal measurements
 #'   and their exponential-mechanism selections start at a small per-round quantum
 #'   (large noise) and **double** whenever a round's measured signal fails to beat
-#'   its noise floor (AIM's \eqn{\sigma}-halving rule). After the mandatory
-#'   `d - treewidth` spanning cliques — which guarantee every variable is covered,
-#'   keeping the sampler inference-free — any **surplus** budget is spent on extra
-#'   rounds that re-measure the worst-fit existing clique (inverse-variance
-#'   combined, so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round
-#'   absorbs the exact remainder, so the total spend is still exactly
-#'   (\eqn{\epsilon}, \eqn{\delta}) — now over a **variable** number of rounds
-#'   chosen from the data. Because the model stays a spanning junction tree (no
-#'   PGM inference), refinement can only sharpen the measured cliques, not add
-#'   loopy marginals; it is most useful when there are few variables and the fixed
+#'   its noise floor (AIM's \eqn{\sigma}-halving rule). After a baseline number of
+#'   selection rounds — the spanning cliques for `"adaptive"`, the treewidth-capped
+#'   new pairs for `"aim"` — any **surplus** budget is spent on extra rounds that
+#'   re-measure the worst-fit already-measured marginal (inverse-variance combined,
+#'   so \eqn{\rho} / \eqn{\epsilon} adds exactly). The final round absorbs the exact
+#'   remainder, so the total spend is still exactly (\eqn{\epsilon}, \eqn{\delta})
+#'   — now over a **variable** number of rounds chosen from the data. For
+#'   `select = "adaptive"` the model stays a spanning junction tree (no PGM
+#'   inference), so refinement can only sharpen the measured cliques; for
+#'   `select = "aim"` the annealed set is triangulated and reconciled with
+#'   Private-PGM exactly as in the fixed-round AIM, so refinement sharpens loopy
+#'   marginals too. It is most useful when there are few variables and the fixed
 #'   schedule would otherwise leave budget on the table. Ignored unless
-#'   `select = "adaptive"`; setting it without adaptive selection is an error.
+#'   `select = "adaptive"` or `select = "aim"`; setting it otherwise is an error.
 #' @param select_frac Adaptive selection only. Fraction of the marginal budget
 #'   spent on the private **selection** (the exponential-mechanism rounds); the
 #'   remaining `1 - select_frac` is spent **measuring** the chosen marginals (and
@@ -436,15 +438,10 @@ dp_control <- function(epsilon,
   if (!is.logical(anneal) || length(anneal) != 1L || is.na(anneal)) {
     stop("`anneal` must be a single TRUE or FALSE.", call. = FALSE)
   }
-  if (select == "aim" && isTRUE(anneal)) {
-    stop(paste0("annealed AIM (`select = \"aim\"` with `anneal = TRUE`) is not ",
-                "yet supported; use anneal = FALSE (a fixed-round schedule)."),
-         call. = FALSE)
-  }
-  if (isTRUE(anneal) && select != "adaptive") {
-    stop(paste0("`anneal = TRUE` needs `select = \"adaptive\"`: it anneals the ",
-                "adaptive selector's per-round budget over a data-adaptive ",
-                "round schedule."), call. = FALSE)
+  if (isTRUE(anneal) && !(select %in% c("adaptive", "aim"))) {
+    stop(paste0("`anneal = TRUE` needs `select = \"adaptive\"` or `select = ",
+                "\"aim\"`: it anneals the selector's per-round budget over a ",
+                "data-adaptive round schedule."), call. = FALSE)
   }
   if (select %in% c("adaptive", "aim")) {
     if (!is.null(structure_frac)) {
@@ -618,7 +615,9 @@ print.dp_control <- function(x, ...) {
         sep = "")
   if (identical(x$select, "aim"))
     cat("  select    : Full AIM (loopy marginals + Private-PGM), treewidth ",
-        x$treewidth, " (", signif(x$select_frac, 3),
+        x$treewidth,
+        if (isTRUE(x$anneal)) " (annealed, data-adaptive round schedule; "
+        else " (", signif(x$select_frac, 3),
         " of budget selects marginals)\n", sep = "")
   if (identical(x$estimator, "pgm"))
     cat("  estimator : Private-PGM reconciliation",

@@ -200,8 +200,12 @@ into one graphical model over a **triangulated** junction tree with Private-PGM 
 samples from that; the `treewidth` cap bounds the triangulated clique size (so
 inference stays exact), and at `treewidth = 1` it reduces to an adaptively-selected
 tree. Selection and measurement compose to the same exact (ε, δ), and the
-reconciliation is budget-neutral. See `vignette("differential-privacy")` for scope
-and the honest utility trade-off.
+reconciliation is budget-neutral. Adding `anneal = TRUE` to `select = "aim"` runs it
+on the same data-adaptive σ-halving schedule as the adaptive selector — a baseline of
+treewidth-capped new loopy pairs, then surplus budget re-measuring the worst-fit
+measured pair, all still triangulated and reconciled with Private-PGM and composing to
+the exact same (ε, δ) over a variable round count. See
+`vignette("differential-privacy")` for scope and the honest utility trade-off.
 
 ## Learn more
 

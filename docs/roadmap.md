@@ -297,10 +297,23 @@ engine; Track B is the opt-in differentially private engine.
       junction tree), `dp_fit_model_aim`, `dp_sample_codes_pgm` (set-valued
       separators / new-variable blocks); the mirror-descent core is factored out of
       `dp_pgm_reconcile` into `dp_pgm_optimize` and shared.
-- Future: an annealed AIM schedule (\eqn{\sigma}-halving over a data-adaptive round
-  count) and model-projection candidate scoring for `select = "aim"`; DP set-union
-  for `character` category discovery under `domain = "dp"`; and tagging a stable
-  0.1.0 for CRAN.
+- [x] **Annealed Full AIM** (`dp_control(select = "aim", anneal = TRUE)`). Runs Full
+      AIM on the data-adaptive \eqn{\sigma}-halving schedule already used by
+      `select = "adaptive"`: the `d` one-ways take a fair fixed share, then the
+      pairwise measurements and their exponential-mechanism selections start noisy and
+      **double** on a failed signal test; a baseline of treewidth-capped new loopy
+      pairs is selected first, then surplus budget re-measures the worst-fit
+      already-measured pair (inverse-variance combined). The measurement and selection
+      pools stay strictly proportional through every doubling and reserve, so they
+      deplete in lockstep and the last round absorbs the exact remainder — total spend
+      still exactly (\eqn{\epsilon}, \eqn{\delta}) over a variable round count. The
+      annealed set is triangulated and reconciled with Private-PGM as in the
+      fixed-round case, so refinement sharpens loopy marginals. New internal
+      `dp_fit_model_aim_anneal`; flat-table only.
+- Future: model-projection candidate scoring for `select = "aim"` (scoring each
+  candidate against the current reconciled model's projection rather than the
+  one-way-product reference); DP set-union for `character` category discovery under
+  `domain = "dp"`; and tagging a stable 0.1.0 for CRAN.
 
 ## Phase 8 — polish  *(done)*
 - [x] API review: exported signatures are symmetric across `synth()` /

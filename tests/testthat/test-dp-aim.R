@@ -188,9 +188,6 @@ test_that("dp_control accepts select = aim and stores it", {
 
 test_that("dp_control rejects aim combined with incompatible knobs", {
   base <- list(epsilon = 1, delta = 1e-6, mechanism = "gaussian", select = "aim")
-  # annealed AIM is not offered yet.
-  expect_error(do.call(dp_control, c(base, list(anneal = TRUE))),
-               "aim|anneal|AIM")
   # structure_frac is the fixed tree's knob.
   expect_error(do.call(dp_control, c(base, list(structure_frac = 0.3))),
                "aim|structure|AIM")

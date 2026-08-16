@@ -335,6 +335,22 @@ only. Use it when you suspect cyclic or higher-order dependence that a single tr
 cannot hold; keep `treewidth` small, since each clique is a `bins^(treewidth+1)`
 histogram.
 
+Adding `anneal = TRUE` swaps the fixed round count for the same data-adaptive
+\(\sigma\)-halving schedule the adaptive selector offers: a baseline of
+treewidth-capped new loopy pairs is selected first, then any surplus budget
+re-measures the worst-fit already-measured pair (inverse-variance combined), with the
+per-round budget doubling whenever a measurement fails its noise floor. The annealed
+set is still triangulated and reconciled with Private-PGM, and the total spend is
+exactly the same \((\epsilon, \delta)\) over a variable number of rounds — the
+`privacy` record reports the realised schedule.
+
+```{r aim-anneal}
+dp_aim_anneal <- dp_control(epsilon = 8, delta = 1e-6, mechanism = "gaussian",
+                            select = "aim", treewidth = 2, anneal = TRUE,
+                            bounds = list(age = c(18, 100), sbp = c(60, 240)))
+synth(real, ~ id, privacy = dp_aim_anneal, seed = 1)$privacy
+```
+
 **Contribution bound.** At `unit = "person"` each person may contribute at most
 `max_rows_per_person` rows (default `1`, appropriate for one-row-per-person
 tables). If a person legitimately has several rows, set this from public domain

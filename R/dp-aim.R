@@ -193,6 +193,196 @@ dp_fit_model_aim <- function(codes, nbins, dp, calib, w, sel_eps, cap) {
        estimator = "pgm", n_rounds = n_rounds)
 }
 
+# Fit the Full AIM model with AIM-style budget annealing: a data-adaptive round
+# schedule instead of the fixed `min(choose(d, 2), w * (d - 1))` rounds. The d
+# one-way marginals take a fair fixed share; the pairwise measurements and their
+# exponential-mechanism selections start at a small per-round quantum (large
+# noise) and *double* whenever a round's measured signal fails to beat its noise
+# floor (AIM's sigma-halving rule). A baseline of up to `n_target` treewidth-capped
+# *new* pairs is selected first; then any surplus budget re-measures the worst-fit
+# already-measured pair (inverse-variance combined). The final round absorbs the
+# exact remainder of both the measurement and selection pools, so the total spend
+# is exactly the pre-committed (eps, delta) over a variable number of rounds --
+# sound by adaptive composition (every per-round decision is post-processing of
+# already-privatised outputs). The measurement and selection quanta stay strictly
+# proportional through every doubling and reserve, so the two pools deplete in
+# lockstep and hit zero together (the exactness argument the fixed split relies on).
+# Unlike the constrained annealer this measures *loopy* pairs (bounded by the
+# treewidth after triangulation), so the result has no forward sampler: the whole
+# measured set is triangulated and reconciled with the shared Private-PGM core and
+# returned as a `kind = "pgm"` model. `pool_meas` / `pool_sel` are the measurement
+# and selection budgets (zCDP rho for Gaussian, pure eps for Laplace). Returns
+# `list(model, anneal)`: the pgm model plus a record of the realised schedule.
+dp_fit_model_aim_anneal <- function(codes, nbins, dp, w, cap,
+                                    pool_meas, pool_sel) {
+  d <- length(codes)
+  vars <- names(codes)
+  idx_all <- seq_len(d)
+  gauss <- dp$mechanism == "gaussian"
+
+  # Budget quantum -> per-cell noise parameter, and per-round selection eps.
+  noise_from   <- function(step) if (gauss) cap / sqrt(2 * step) else cap / step
+  sel_eps_from <- function(step) if (gauss) sqrt(2 * step) else step
+  mean_abs     <- function(np) if (gauss) np * sqrt(2 / pi) else np
+  add_noise    <- function(cnt, np) if (gauss)
+    cnt + stats::rnorm(length(cnt), sd = np) else cnt + rlaplace(length(cnt), np)
+
+  all_pairs <- if (d >= 2L) utils::combn(d, 2L, simplify = FALSE) else list()
+  # Baseline new-pair count: the fixed schedule's round count, used only as the
+  # one-way fair-share denominator and the phase-A reserve horizon.
+  n_target <- if (d >= 2L)
+    as.integer(min(d * (d - 1L) / 2L, w * (d - 1L))) else 0L
+
+  # --- Fixed, fair share for the one-way marginals; the rest anneals. --------
+  n_oneway <- d
+  pool_one  <- pool_meas * n_oneway / (n_oneway + n_target)
+  pool_pair <- pool_meas - pool_one
+  q_one <- pool_one / n_oneway
+  np_one <- noise_from(q_one)
+
+  meas_rounds  <- rep(q_one, n_oneway)         # per-round measurement budgets
+  sel_rounds   <- numeric(0)                   # per-round selection budgets
+  noise_params <- rep(np_one, n_oneway)        # per measurement round
+  n_anneal_steps <- 0L
+
+  c1 <- lapply(idx_all, function(i) add_noise(tabulate(codes[[i]], nbins[i]), np_one))
+  names(c1) <- vars
+  p1 <- lapply(c1, dp_normalise)
+  n_est <- max(1, round(mean(vapply(c1, function(x) sum(pmax(x, 0)), numeric(1)))))
+
+  # Annealed pair quanta, kept strictly proportional to the selection quanta.
+  q_pair0 <- pool_pair / (2 * max(n_target, 1L))
+  q_sel0  <- pool_sel  / (2 * max(n_target, 1L))
+  q_pair  <- q_pair0
+  q_sel   <- q_sel0
+  pair_left <- pool_pair
+  sel_left  <- pool_sel
+
+  # L1 gap between the true pair joint and the one-way-product reference (the same
+  # independence reference the fixed AIM selector uses), minus a noise penalty.
+  score_pair <- function(i, j, noise_abs) {
+    true_cnt <- as.vector(dp_true_joint_array(codes, c(i, j), nbins))
+    ref <- as.vector(outer(p1[[i]], p1[[j]])) * n_est
+    sum(abs(true_cnt - ref)) - length(true_cnt) * noise_abs
+  }
+  # Raw (unclipped) noisy joint count array of a pair at noise parameter `np`, in
+  # sorted-variable order, so repeated measurements combine without clipping bias.
+  measure_pair <- function(i, j, np) {
+    sv <- sort(c(i, j))
+    comps <- lapply(sv, function(v) codes[[v]])
+    ok <- Reduce(`&`, lapply(comps, function(x) !is.na(x)))
+    comps <- lapply(comps, function(x) x[ok])
+    dims <- nbins[sv]
+    cnt <- tabulate(dp_combo_index(comps, dims), nbins = prod(dims))
+    array(add_noise(cnt, np), dim = dims)
+  }
+  # AIM signal test: did the measured marginal beat its expected noise floor? If
+  # not, the quantum is too small -> double both quanta for later rounds.
+  signal_test <- function(new_counts, prior_counts, np) {
+    floor <- mean_abs(np) * length(new_counts)
+    if (sum(abs(new_counts - prior_counts)) <= floor) {
+      q_pair <<- q_pair * 2
+      q_sel  <<- q_sel * 2
+      n_anneal_steps <<- n_anneal_steps + 1L
+    }
+  }
+
+  pair_key <- function(p) paste(sort(p), collapse = "-")
+  measured <- list()                    # key -> list(vars, array, np)
+  edges <- list()                       # measured undirected pairs
+  tri_width_with <- function(extra)
+    dp_triangulate(d, c(edges, list(sort(extra))))$width
+
+  # --- Phase A: baseline new-pair selection (up to n_target, cap-respecting). --
+  n_new <- 0L
+  saturated <- FALSE
+  while (n_new < n_target && !saturated) {
+    have <- names(measured)
+    new_cand <- Filter(function(p) {
+      k <- pair_key(p)
+      !(k %in% have) && tri_width_with(p) <= w + 1L
+    }, all_pairs)
+    if (length(new_cand) == 0L) { saturated <- TRUE; break }
+    remaining <- n_target - n_new - 1L         # baseline rounds AFTER this one
+    q_p <- min(q_pair, pair_left - max(remaining, 0L) * q_pair0)
+    q_s <- min(q_sel,  sel_left  - max(remaining, 0L) * q_sel0)
+    np_r <- noise_from(q_p); sel_e <- sel_eps_from(q_s); noise_abs <- mean_abs(np_r)
+
+    scores <- vapply(new_cand, function(p) score_pair(p[1L], p[2L], noise_abs),
+                     numeric(1))
+    pick <- new_cand[[dp_exp_select(scores, sel_e, cap)]]
+    i <- pick[1L]; j <- pick[2L]
+    A <- measure_pair(i, j, np_r)
+    ref <- as.vector(outer(p1[[i]], p1[[j]])) * n_est
+    signal_test(as.vector(A), ref, np_r)
+    measured[[pair_key(pick)]] <- list(vars = sort(c(i, j)), array = A, np = np_r)
+    edges[[length(edges) + 1L]] <- sort(c(i, j))
+    meas_rounds <- c(meas_rounds, q_p); sel_rounds <- c(sel_rounds, q_s)
+    noise_params <- c(noise_params, np_r)
+    pair_left <- pair_left - q_p; sel_left <- sel_left - q_s
+    n_new <- n_new + 1L
+  }
+
+  # --- Phase B: spend surplus budget re-measuring the worst-fit existing pair. -
+  max_refine <- 8L * d
+  n_refine <- 0L
+  repeat {
+    if (pair_left <= 1e-9 || n_refine >= max_refine || length(measured) == 0L) break
+    q_p <- min(q_pair, pair_left)
+    last <- (pair_left - q_p < q_pair0) || (n_refine + 1L >= max_refine)
+    if (last) q_p <- pair_left
+    q_s <- if (last) sel_left else min(q_sel, max(sel_left - q_sel0, 0))
+    q_s <- min(q_s, sel_left)
+    np_r <- noise_from(q_p); sel_e <- sel_eps_from(q_s); noise_abs <- mean_abs(np_r)
+
+    keys <- names(measured)
+    scores <- vapply(keys, function(k) {
+      v <- measured[[k]]$vars; score_pair(v[1L], v[2L], noise_abs)
+    }, numeric(1))
+    k <- keys[dp_exp_select(scores, sel_e, cap)]
+    v <- measured[[k]]$vars
+    A_new <- measure_pair(v[1L], v[2L], np_r)
+    signal_test(as.vector(A_new), as.vector(measured[[k]]$array), np_r)
+    comb <- dp_combine_gaussian(measured[[k]]$array, measured[[k]]$np, A_new, np_r)
+    measured[[k]]$array <- array(comb$value, dim = nbins[v])
+    measured[[k]]$np <- comb$sd
+
+    meas_rounds <- c(meas_rounds, q_p); sel_rounds <- c(sel_rounds, q_s)
+    noise_params <- c(noise_params, np_r)
+    pair_left <- pair_left - q_p; sel_left <- sel_left - q_s
+    n_refine <- n_refine + 1L
+    if (last) break
+  }
+
+  # Triangulate the measured (loopy) edge set and reconcile the whole set with the
+  # shared Private-PGM core, then sample it via dp_sample_codes_pgm().
+  tri <- dp_triangulate(d, edges)
+  cv <- tri$cliques
+  meas <- c(
+    lapply(idx_all, function(i) list(vars = i, y = pmax(c1[[i]], 0))),
+    lapply(measured, function(m) list(vars = m$vars, y = as.vector(m$array)))
+  )
+  opt <- dp_pgm_optimize(cv, tri$edges, meas, nbins)
+
+  model <- list(kind = "pgm", vars = vars, nbins = nbins, cliques = cv,
+                edges = tri$edges, beliefs = opt$bel, marginals = p1,
+                n_est = n_est, treewidth = w, estimator = "pgm",
+                n_rounds = length(sel_rounds))
+  info <- list(anneal = TRUE, treewidth = w, n_new = n_new, n_target = n_target,
+               n_rounds = length(sel_rounds), n_refine = n_refine,
+               n_anneal_steps = n_anneal_steps,
+               noise_min = min(noise_params), noise_max = max(noise_params),
+               select_frac = dp$select_frac)
+  if (gauss) {
+    info$rho_meas_rounds <- meas_rounds
+    info$rho_sel_rounds  <- sel_rounds
+  } else {
+    info$eps_meas_rounds <- meas_rounds
+    info$eps_sel_rounds  <- sel_rounds
+  }
+  list(model = model, anneal = info)
+}
+
 # Draw one synthetic code matrix (n x d) from a Full AIM (`kind = "pgm"`) model
 # by forward sampling along its triangulated junction tree: root the tree at
 # clique 1 and sample its joint belief; then for each child clique sample its

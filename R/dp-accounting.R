@@ -165,9 +165,16 @@ print.dp_accounting <- function(x, ...) {
   } else if (is.null(x$longitudinal)) {
     if (!is.null(x$aim)) {
       am <- x$aim
-      cat("  marginals :", x$n_marginals,
-          paste0("(", length(x$variables), " one-way + ", am$n_rounds,
-                 " adaptively selected pairs, loopy, composed budget)\n"))
+      if (isTRUE(am$anneal)) {
+        cat("  marginals :", x$n_marginals,
+            paste0("(", length(x$variables), " one-way + ", am$n_new,
+                   " loopy + ", am$n_refine,
+                   " refinement pair(s), composed budget)\n"))
+      } else {
+        cat("  marginals :", x$n_marginals,
+            paste0("(", length(x$variables), " one-way + ", am$n_rounds,
+                   " adaptively selected pairs, loopy, composed budget)\n"))
+      }
     } else if (!is.null(x$adaptive)) {
       ad <- x$adaptive
       if (isTRUE(ad$anneal)) {
@@ -218,11 +225,13 @@ print.dp_accounting <- function(x, ...) {
       }
     }
   }
-  if (!is.null(x$adaptive) && isTRUE(x$adaptive$anneal)) {
-    ad <- x$adaptive
+  anneal_rec <- if (!is.null(x$adaptive) && isTRUE(x$adaptive$anneal)) x$adaptive
+                else if (!is.null(x$aim) && isTRUE(x$aim$anneal)) x$aim
+                else NULL
+  if (!is.null(anneal_rec)) {
     cat("  noise     :",
         if (x$mechanism == "laplace") "Laplace scale" else "Gaussian sd",
-        signif(ad$noise_min, 4), "-", signif(ad$noise_max, 4),
+        signif(anneal_rec$noise_min, 4), "-", signif(anneal_rec$noise_max, 4),
         "per cell (annealed range)\n")
   } else {
     cat("  noise     :",
@@ -259,9 +268,17 @@ print.dp_accounting <- function(x, ...) {
   }
   if (!is.null(x$aim)) {
     am <- x$aim
-    cat("  selection : Full AIM (loopy marginals),", signif(am$select_frac, 3),
-        "of budget over", am$n_rounds, "exponential-mechanism round(s);",
-        "per-round eps", signif(am$select_eps, 4), "\n")
+    if (isTRUE(am$anneal)) {
+      cat("  selection : annealed Full AIM (loopy marginals),",
+          signif(am$select_frac, 3), "of budget;", am$n_rounds,
+          "round(s) =", am$n_new, "loopy +", am$n_refine, "refinement;",
+          if (x$mechanism == "laplace") "noise halved" else "sigma halved",
+          paste0(am$n_anneal_steps, "x"), "\n")
+    } else {
+      cat("  selection : Full AIM (loopy marginals),", signif(am$select_frac, 3),
+          "of budget over", am$n_rounds, "exponential-mechanism round(s);",
+          "per-round eps", signif(am$select_eps, 4), "\n")
+    }
     cat("  estimator : Private-PGM reconciliation over the triangulated model\n")
     cat("              (belief propagation + mirror descent; post-processing,",
         "no extra budget)\n")
