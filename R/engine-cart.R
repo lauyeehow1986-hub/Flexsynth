@@ -217,16 +217,19 @@ subject_level_cols <- function(data, id, cols) {
 # grain, `syn` = the synthetic frame to fill). Each variable is drawn from its
 # registered method, conditioning on the columns synthesised before it (subject
 # to any `predictor_matrix` restriction). Returns `syn` with the new cols.
-synth_sequence <- function(train, syn, cols, available, methods, control) {
+synth_sequence <- function(train, syn, cols, available, methods, control,
+                           na_map = NULL) {
   n_syn  <- nrow(syn)
   pm     <- control$predictor_matrix
   smooth <- smoothing_targets(control, cols)
   for (v in cols) {
-    y <- train[[v]]
+    y     <- train[[v]]
     preds <- allowed_predictors(pm, v, available)
-    model <- fit_var(y, train[preds], preds, methods[[v]], control)
+    rows  <- fit_rows(train, v, na_map)          # value model fits observed rows
+    model <- fit_var(y[rows], train[preds][rows, , drop = FALSE], preds,
+                     methods[[v]], control)
     val   <- apply_var(model, syn[preds], n_syn, control)
-    if (v %in% smooth) val <- smooth_draw(val, y)
+    if (v %in% smooth) val <- smooth_draw(val, y[rows])
     syn[[v]] <- val
     available <- c(available, v)
   }
@@ -269,7 +272,7 @@ assemble_frame <- function(pred, nonlag_df, rows, lag_fun = NULL) {
 # Generation then proceeds position by position (t = 1, 2, ...): the lag columns
 # for position t are read from the already-synthesised rows at position t - 1.
 synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
-                           methods, control) {
+                           methods, control, na_map = NULL) {
   id     <- st$id
   pm     <- control$predictor_matrix
   smooth <- smoothing_targets(control, time_cols)
@@ -307,13 +310,20 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
     init_pred[[v]] <- ipred
     tran_pred[[v]] <- tpred
 
-    iframe <- assemble_frame(ipred, rdat, which(first))
-    init_models[[v]] <- fit_var(rdat[[v]][first], iframe, ipred, meth, control)
+    ## Fit the value models on observed rows only (missing rows carry a
+    ## placeholder that must not enter the value distribution). The indicator's
+    ## own model, and any variable without missingness, use every row.
+    obs_v <- if (!is.null(na_map) && !is.null(na_map[[v]]))
+      rdat[[na_map[[v]]$ind]] == "FALSE" else rep(TRUE, nrow(rdat))
+
+    firow <- which(first & obs_v); if (!length(firow)) firow <- which(first)
+    iframe <- assemble_frame(ipred, rdat, firow)
+    init_models[[v]] <- fit_var(rdat[[v]][firow], iframe, ipred, meth, control)
     if (have_nonfirst) {
-      rows_nf <- which(nonfirst)
-      tframe <- assemble_frame(tpred, rdat, rows_nf,
-                               lag_fun = function(w) rlags[[paste0(".lag_", w)]][rows_nf])
-      tran_models[[v]] <- fit_var(rdat[[v]][nonfirst], tframe, tpred, meth, control)
+      nfrow <- which(nonfirst & obs_v); if (!length(nfrow)) nfrow <- which(nonfirst)
+      tframe <- assemble_frame(tpred, rdat, nfrow,
+                               lag_fun = function(w) rlags[[paste0(".lag_", w)]][nfrow])
+      tran_models[[v]] <- fit_var(rdat[[v]][nfrow], tframe, tpred, meth, control)
     }
     earlier <- c(earlier, v)
   }
@@ -362,21 +372,23 @@ synth_temporal <- function(data, syn, st, subj_cols, time_cols, fixed_cols,
 #     indices, plus any carried attributes).
 # Both must already be present in `train` and in `syn`.
 fill_columns <- function(train, syn, st, subj_cols, time_cols,
-                         subj_fixed, time_fixed, methods, control) {
+                         subj_fixed, time_fixed, methods, control,
+                         na_map = NULL) {
   id_col <- st$id
 
   if (length(subj_cols)) {
     keepc <- c(id_col, subj_fixed)
     sdat <- train[!duplicated(train[[id_col]]), c(keepc, subj_cols), drop = FALSE]
     ssyn <- syn[!duplicated(syn[[id_col]]), keepc, drop = FALSE]
-    ssyn <- synth_sequence(sdat, ssyn, subj_cols, subj_fixed, methods, control)
+    ssyn <- synth_sequence(sdat, ssyn, subj_cols, subj_fixed, methods, control,
+                           na_map)
     pos <- match(syn[[id_col]], ssyn[[id_col]])
     for (v in subj_cols) syn[[v]] <- ssyn[[v]][pos]
   }
 
   if (length(time_cols)) {
     syn <- synth_temporal(train, syn, st, subj_cols, time_cols, time_fixed,
-                          methods, control)
+                          methods, control, na_map)
   }
   syn
 }
@@ -390,12 +402,12 @@ fill_columns <- function(train, syn, st, subj_cols, time_cols,
 # once per unit and broadcast; remaining time-varying columns are synthesised
 # with the autoregressive temporal model.
 synthesise_once <- function(data, st, subj_cols, time_cols, fixed_cols,
-                            methods, control) {
+                            methods, control, na_map = NULL) {
   syn <- synth_skeleton(data, st, control)
   syn <- fill_columns(data, syn, st, subj_cols, time_cols,
                       subj_fixed = character(0), time_fixed = fixed_cols,
-                      methods, control)
-  syn <- syn[names(data)]          # restore original column order
+                      methods, control, na_map)
+  syn <- syn[names(data)]          # restore (augmented) column order
   rownames(syn) <- NULL
   syn
 }

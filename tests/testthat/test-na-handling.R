@@ -13,23 +13,24 @@ make_na_data <- function() {
   d
 }
 
-test_that("method = 'norm' does not crash on missing data", {
+test_that("method = 'norm' does not crash and preserves the missingness rate", {
   d <- make_na_data()
   expect_no_error(res <- synth(d, ~ id, method = "norm", seed = 1))
   s <- as.data.frame(res)
   expect_equal(nrow(s), nrow(d))
-  # A synthetic predictor (age) keeps its own missingness, so a missing predictor
-  # yields a missing prediction; the vast majority of rows are still finite.
-  expect_true(mean(is.finite(s$sbp)) > 0.8)
+  # The missingness model preserves sbp's ~30% NA rate; observed values finite.
+  expect_equal(mean(is.na(s$sbp)), mean(is.na(d$sbp)), tolerance = 0.08)
+  expect_true(all(is.finite(s$sbp[!is.na(s$sbp)])))
 })
 
-test_that("method = 'normrank' does not crash on missing data", {
+test_that("method = 'normrank' does not crash and preserves the missingness rate", {
   d <- make_na_data()
   expect_no_error(res <- synth(d, ~ id, method = "normrank", seed = 1))
   s <- as.data.frame(res)
   expect_equal(nrow(s), nrow(d))
-  # normrank maps to observed values, so every finite output is a real value.
-  fin <- is.finite(s$sbp)
+  expect_equal(mean(is.na(s$sbp)), mean(is.na(d$sbp)), tolerance = 0.08)
+  # normrank maps to observed values, so every non-missing output is a real value.
+  fin <- !is.na(s$sbp)
   expect_true(all(s$sbp[fin] %in% d$sbp[!is.na(d$sbp)]))
 })
 

@@ -17,6 +17,17 @@
   now records whether `proper` synthesis was used, which selects the correct
   variance formula.
 
+* **Missing-data model.** A Track A variable that contains `NA`s is now split
+  into a companion *missingness indicator* — a factor synthesised in sequence
+  just before the variable — plus the value itself, whose model is fitted on the
+  observed rows only. Missing entries are placeholder-imputed for the variable's
+  role as a *predictor* so missingness never cascades into fully-observed
+  downstream variables, and the synthesised indicator drives which rows are set
+  back to `NA`. This preserves both the missingness rate and its association with
+  the other variables (e.g. values missing more often for older subjects). The
+  indicator columns are stripped from the returned data. Applies to single-table
+  [synth()]; linked children and Track B are unchanged for now.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

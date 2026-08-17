@@ -70,6 +70,13 @@ visits is preserved. The number of rows per unit is drawn from the learned
 count distribution and the structural-index sequence is regenerated for each
 synthetic unit.
 
+Any column containing \code{NA}s is given a missingness model: a companion
+indicator is synthesised in sequence just before the column, the column's own
+value model is fitted on the observed rows only, and the synthesised indicator
+decides which rows are set back to \code{NA}. This preserves the missingness rate
+and its association with the other variables, without letting missingness
+cascade through predictors. The indicators are not returned.
+
 Supplying \code{constraints} (see \code{\link[=rule]{rule()}}) keeps only synthetic units whose rows
 satisfy every rule, regenerating until enough valid units are collected — so
 logical and within-unit temporal constraints are honoured without breaking

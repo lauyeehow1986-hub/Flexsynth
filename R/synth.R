@@ -25,6 +25,13 @@
 #' count distribution and the structural-index sequence is regenerated for each
 #' synthetic unit.
 #'
+#' Any column containing `NA`s is given a missingness model: a companion
+#' indicator is synthesised in sequence just before the column, the column's own
+#' value model is fitted on the observed rows only, and the synthesised indicator
+#' decides which rows are set back to `NA`. This preserves the missingness rate
+#' and its association with the other variables, without letting missingness
+#' cascade through predictors. The indicators are not returned.
+#'
 #' Supplying `constraints` (see [rule()]) keeps only synthetic units whose rows
 #' satisfy every rule, regenerating until enough valid units are collected — so
 #' logical and within-unit temporal constraints are honoured without breaking
@@ -105,22 +112,44 @@ synth <- function(data,
     synth_cols <- c(intersect(vs, synth_cols), setdiff(synth_cols, vs))
   }
 
+  ## Missingness model: split each column that has NAs into a companion
+  ## indicator (synthesised in sequence) plus a placeholder-imputed value, so
+  ## missingness is preserved and conditional on the other variables without
+  ## cascading through predictors. Indicators are stripped from the output.
+  orig_names <- names(data)
+  prep       <- prepare_missingness(data, synth_cols)
+  data       <- prep$data
+  synth_cols <- prep$synth_cols
+  na_map     <- prep$na_map
+  ind_names  <- indicator_cols(na_map)
+
   methods <- resolve_methods(method, tuning$method, synth_cols)
+  if (length(na_map)) {
+    # Indicators are categorical, so they cannot use a numeric-only method;
+    # a predictor-aware tree captures missingness-at-random on other variables.
+    ind_method <- if (requireNamespace("rpart", quietly = TRUE)) "cart" else "sample"
+    for (iv in ind_names) methods[[iv]] <- ind_method
+  }
 
   subj_cols <- subject_level_cols(data, st$id, synth_cols)
   time_cols <- setdiff(synth_cols, subj_cols)   # keeps synth_cols order
 
-  gen_one <- function()
-    synthesise_once(data, st, subj_cols, time_cols, fixed_cols, methods, tuning)
+  gen_one <- function() {
+    syn <- synthesise_once(data, st, subj_cols, time_cols, fixed_cols,
+                           methods, tuning, na_map)
+    syn <- impose_missingness(syn, na_map)      # NA where indicator TRUE; drop it
+    syn[orig_names]                             # original columns / order
+  }
   gen_fun <- if (is.null(rules)) gen_one
              else function() apply_constraints(gen_one, st$id, rules, tuning)
   syns <- run_replicates(m, gen_fun, tuning, seed)
   syn <- if (m == 1L) syns[[1L]] else syns
 
+  reported <- setdiff(synth_cols, ind_names)    # hide indicators from metadata
   new_synth_result(
-    syn = syn, m = as.integer(m), n = nrow(data), method = methods,
-    structure = structure, visit_sequence = synth_cols, fixed = fixed_cols,
-    subject = subj_cols, privacy = NULL, seed = seed, call = match.call(),
-    proper = isTRUE(tuning$proper)
+    syn = syn, m = as.integer(m), n = nrow(data), method = methods[reported],
+    structure = structure, visit_sequence = reported, fixed = fixed_cols,
+    subject = setdiff(subj_cols, ind_names), privacy = NULL, seed = seed,
+    call = match.call(), proper = isTRUE(tuning$proper)
   )
 }
