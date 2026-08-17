@@ -9,7 +9,8 @@ test_that("missingness rate is preserved without a warning (cart)", {
   d$sbp[sample(400, 120)] <- NA                 # 30% missing
   w <- 0
   s <- withCallingHandlers(
-    as.data.frame(synth(d, ~ id, method = "cart", seed = 1)),
+    as.data.frame(synth(d, ~ id, method = "cart",
+                        tuning = synth_control(smoothing = FALSE), seed = 1)),
     warning = function(x) { w <<- w + 1; invokeRestart("muffleWarning") })
   expect_equal(w, 0)                             # no more "split variable" warning
   expect_equal(mean(is.na(s$sbp)), 0.30, tolerance = 0.06)

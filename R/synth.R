@@ -131,6 +131,10 @@ synth <- function(data,
     for (iv in ind_names) methods[[iv]] <- ind_method
   }
 
+  # Resolve the NULL (auto) smoothing default against the value columns: smooth
+  # the ones that look continuous (indicator factors are never numeric).
+  tuning <- resolve_smoothing(tuning, data, setdiff(synth_cols, ind_names))
+
   subj_cols <- subject_level_cols(data, st$id, synth_cols)
   time_cols <- setdiff(synth_cols, subj_cols)   # keeps synth_cols order
 

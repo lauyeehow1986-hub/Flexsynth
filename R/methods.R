@@ -125,14 +125,30 @@ allowed_predictors <- function(pm, target, candidates) {
   intersect(candidates, keep)
 }
 
-# Which of `cols` should have their numeric draws smoothed? `smoothing` may be
-# NULL (none), TRUE / "density" (all numeric), or a character vector of names.
+# Which of `cols` should have their numeric draws smoothed? By the time the
+# engine runs, `resolve_smoothing()` has turned the NULL default into an explicit
+# character vector, so here `smoothing` is TRUE / "density" (all numeric),
+# FALSE / "none" (none), or a character vector of names.
 smoothing_targets <- function(control, cols) {
   sm <- control$smoothing
   if (is.null(sm)) return(character(0))
   if (isTRUE(sm) || identical(sm, "density")) return(cols)
   if (is.character(sm)) return(intersect(sm, cols))
   character(0)
+}
+
+# Resolve the NULL (auto) smoothing default against the data: smooth numeric
+# variables that look continuous (more than `min_distinct` observed values), so
+# their CART draws are not confined to the observed support. An explicit
+# `smoothing` (TRUE / FALSE / "density" / "none" / names) is left untouched.
+resolve_smoothing <- function(control, data, cols, min_distinct = 20L) {
+  if (!is.null(control$smoothing)) return(control)
+  auto <- cols[vapply(cols, function(v) {
+    x <- data[[v]]
+    is.numeric(x) && length(unique(x[!is.na(x)])) > min_distinct
+  }, logical(1))]
+  control$smoothing <- auto
+  control
 }
 
 # Kernel-smooth a numeric synthetic draw: add Gaussian noise with a rule-of-thumb

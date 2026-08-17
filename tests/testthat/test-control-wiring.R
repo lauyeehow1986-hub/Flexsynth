@@ -10,7 +10,8 @@ make_ctrl_df <- function(seed = 1, n = 300) {
 test_that("smoothing jitters numeric draws and preserves integer type", {
   skip_if_not_installed("rpart")
   df <- make_ctrl_df()
-  free   <- as.data.frame(synth(df, ~ id, method = "cart", seed = 5))
+  free   <- as.data.frame(synth(df, ~ id, method = "cart",
+                                tuning = synth_control(smoothing = FALSE), seed = 5))
   smooth <- as.data.frame(synth(df, ~ id, method = "cart",
                                 tuning = synth_control(smoothing = "x"), seed = 5))
   expect_gt(length(unique(smooth$x)), length(unique(free$x)))
@@ -22,7 +23,8 @@ test_that("smoothing jitters numeric draws and preserves integer type", {
 test_that("smoothing = TRUE smooths every numeric column", {
   skip_if_not_installed("rpart")
   df <- make_ctrl_df()
-  free   <- as.data.frame(synth(df, ~ id, method = "cart", seed = 9))
+  free   <- as.data.frame(synth(df, ~ id, method = "cart",
+                                tuning = synth_control(smoothing = FALSE), seed = 9))
   smooth <- as.data.frame(synth(df, ~ id, method = "cart",
                                 tuning = synth_control(smoothing = TRUE), seed = 9))
   expect_gt(length(unique(smooth$y)), length(unique(free$y)))

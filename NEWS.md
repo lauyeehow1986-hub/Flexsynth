@@ -36,6 +36,15 @@
   identity and membership measures. For a linked input it is assessed on the
   table that holds the target.
 
+* **Continuous variables are smoothed by default.** `synth_control(smoothing)`
+  now defaults to **auto**: numeric variables that look continuous (more than 20
+  distinct values) are kernel-smoothed, so their CART draws are no longer
+  confined to the observed values — improving marginal realism and reducing
+  exact-value replication (an identity-disclosure vector). Low-cardinality
+  numeric codes are left alone. This changes single-table [synth()] output versus
+  0.1.x; set `smoothing = FALSE` (now accepted, along with `"none"`) to restore
+  the previous behaviour. `TRUE` / `"density"` still smooth every numeric column.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

@@ -12,15 +12,19 @@
 #'   the engine derive a sensible default.
 #' @param method Optional per-variable method override; a single string applies
 #'   globally. `NULL` uses the call-level `method`.
-#' @param smoothing Optional smoothing specification for numeric variables.
 #' @param proper Logical; use proper (`TRUE`) vs improper (`FALSE`) synthesis.
 #' @param k Optional size of each synthetic dataset. `NULL` matches the input.
 #' @param cart,forest Named lists of hyperparameters passed to the CART / random
 #'   forest backends. For `forest`, `ntree` (number of trees, default 10) and
 #'   `mtry` (predictors tried per tree, default all) are recognised.
-#' @param smoothing Numeric-variable smoothing: `NULL` (none), `TRUE` /
-#'   `"density"` (kernel-smooth every numeric draw), or a character vector of
-#'   variable names to smooth.
+#' @param smoothing Numeric-variable kernel smoothing. `NULL` (default) is
+#'   **auto**: smooth numeric variables that look continuous (more than 20
+#'   distinct values), so their draws are not confined to the observed values —
+#'   improving marginal realism and reducing exact-value replication. `TRUE` /
+#'   `"density"` smooths every numeric variable; `FALSE` / `"none"` disables
+#'   smoothing; a character vector smooths exactly the named variables. Auto
+#'   resolution applies to single-table [synth()]; [synth_linked()] children are
+#'   unsmoothed unless named explicitly.
 #' @param constraint_max_tries Integer; how many times [synth()] may regenerate
 #'   while rejection-sampling to satisfy `constraints`. Defaults to 50.
 #' @param parallel Controls parallel generation of the `m` synthetic replicates.
@@ -61,10 +65,12 @@ synth_control <- function(visit_sequence = NULL,
   if (!is.list(cart) || !is.list(forest)) {
     stop("`cart` and `forest` must be lists of hyperparameters.", call. = FALSE)
   }
-  if (!is.null(smoothing) &&
-      !(isTRUE(smoothing) || is.character(smoothing))) {
-    stop("`smoothing` must be NULL, TRUE, \"density\", or a character vector.",
-         call. = FALSE)
+  ok_sm <- is.null(smoothing) ||
+    (is.logical(smoothing) && length(smoothing) == 1L && !is.na(smoothing)) ||
+    is.character(smoothing)
+  if (!ok_sm) {
+    stop(paste0("`smoothing` must be NULL, TRUE/FALSE, \"density\"/\"none\", or ",
+                "a character vector of variable names."), call. = FALSE)
   }
   if (!is.numeric(constraint_max_tries) || length(constraint_max_tries) != 1L ||
       is.na(constraint_max_tries) || constraint_max_tries < 1) {

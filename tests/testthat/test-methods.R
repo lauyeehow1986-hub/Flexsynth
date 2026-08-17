@@ -57,8 +57,9 @@ test_that("norm and normrank synthesise numeric variables in range", {
     expect_gte(min(s$x), min(df$x))             # clamped / rank-mapped to range
     expect_lte(max(s$x), max(df$x))
   }
-  # normrank returns only observed values (marginal preserved exactly)
-  ctrl <- synth_control(method = stats::setNames(
+  # normrank returns only observed values (marginal preserved exactly);
+  # disable smoothing so the rank-mapped values are not jittered off the support
+  ctrl <- synth_control(smoothing = FALSE, method = stats::setNames(
     c("normrank", "cart", "normrank"), c("x", "g", "y")))
   s <- as.data.frame(synth(df, ~ id, tuning = ctrl, seed = 5))
   expect_true(all(s$x %in% df$x))

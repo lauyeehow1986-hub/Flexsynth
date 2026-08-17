@@ -28,9 +28,14 @@ the engine derive a sensible default.}
 \item{method}{Optional per-variable method override; a single string applies
 globally. \code{NULL} uses the call-level \code{method}.}
 
-\item{smoothing}{Numeric-variable smoothing: \code{NULL} (none), \code{TRUE} /
-\code{"density"} (kernel-smooth every numeric draw), or a character vector of
-variable names to smooth.}
+\item{smoothing}{Numeric-variable kernel smoothing. \code{NULL} (default) is
+\strong{auto}: smooth numeric variables that look continuous (more than 20
+distinct values), so their draws are not confined to the observed values —
+improving marginal realism and reducing exact-value replication. \code{TRUE} /
+\code{"density"} smooths every numeric variable; \code{FALSE} / \code{"none"} disables
+smoothing; a character vector smooths exactly the named variables. Auto
+resolution applies to single-table \code{\link[=synth]{synth()}}; \code{\link[=synth_linked]{synth_linked()}} children are
+unsmoothed unless named explicitly.}
 
 \item{proper}{Logical; use proper (\code{TRUE}) vs improper (\code{FALSE}) synthesis.}
 

@@ -15,7 +15,8 @@ make_na_data <- function() {
 
 test_that("method = 'norm' does not crash and preserves the missingness rate", {
   d <- make_na_data()
-  expect_no_error(res <- synth(d, ~ id, method = "norm", seed = 1))
+  expect_no_error(res <- synth(d, ~ id, method = "norm",
+                               tuning = synth_control(smoothing = FALSE), seed = 1))
   s <- as.data.frame(res)
   expect_equal(nrow(s), nrow(d))
   # The missingness model preserves sbp's ~30% NA rate; observed values finite.
@@ -25,7 +26,8 @@ test_that("method = 'norm' does not crash and preserves the missingness rate", {
 
 test_that("method = 'normrank' does not crash and preserves the missingness rate", {
   d <- make_na_data()
-  expect_no_error(res <- synth(d, ~ id, method = "normrank", seed = 1))
+  expect_no_error(res <- synth(d, ~ id, method = "normrank",
+                               tuning = synth_control(smoothing = FALSE), seed = 1))
   s <- as.data.frame(res)
   expect_equal(nrow(s), nrow(d))
   expect_equal(mean(is.na(s$sbp)), mean(is.na(d$sbp)), tolerance = 0.08)
