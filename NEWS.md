@@ -64,6 +64,13 @@
   comparison is now reported alongside the numeric correlation view, so dependence
   between factor variables is checked, not just numeric-numeric.
 
+* **Covariate-conditional row counts.** `synth_control(count_model =
+  "conditional")` synthesises subject-level covariates first and draws each unit's
+  number of rows from a CART model of size on those covariates, so a dependence
+  such as "sicker patients have more visits" is preserved. `"marginal"` (default)
+  keeps the previous covariate-independent size resampling. Takes effect only for
+  nested data with subject-level covariates.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

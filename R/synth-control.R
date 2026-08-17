@@ -13,6 +13,13 @@
 #' @param method Optional per-variable method override; a single string applies
 #'   globally. `NULL` uses the call-level `method`.
 #' @param proper Logical; use proper (`TRUE`) vs improper (`FALSE`) synthesis.
+#' @param count_model How the number of rows per unit is drawn for nested /
+#'   longitudinal data. `"marginal"` (default) resamples the observed unit sizes
+#'   independently of any covariate. `"conditional"` synthesises the subject-level
+#'   covariates first and draws each unit's size from a CART model of size on
+#'   those covariates, so a dependence such as "sicker patients have more visits"
+#'   is preserved. Only takes effect when the structure is nested and there are
+#'   subject-level covariates; ignored for flat single-row-per-unit data.
 #' @param k Optional size of each synthetic dataset. `NULL` matches the input.
 #' @param cart,forest Named lists of hyperparameters passed to the CART / random
 #'   forest backends. For `forest`, `ntree` (number of trees, default 10) and
@@ -45,11 +52,13 @@ synth_control <- function(visit_sequence = NULL,
                           method = NULL,
                           smoothing = NULL,
                           proper = FALSE,
+                          count_model = c("marginal", "conditional"),
                           k = NULL,
                           cart = list(),
                           forest = list(),
                           constraint_max_tries = 50L,
                           parallel = FALSE) {
+  count_model <- match.arg(count_model)
   if (!is.null(visit_sequence) && !is.character(visit_sequence)) {
     stop("`visit_sequence` must be NULL or a character vector.", call. = FALSE)
   }
@@ -92,6 +101,7 @@ synth_control <- function(visit_sequence = NULL,
       method = method,
       smoothing = smoothing,
       proper = proper,
+      count_model = count_model,
       k = k,
       cart = cart,
       forest = forest,
@@ -107,6 +117,7 @@ print.synth_control <- function(x, ...) {
   fmt <- function(v) if (is.null(v)) "none" else paste(v, collapse = ", ")
   cat("<synth_control>\n")
   cat("  proper           :", x$proper, "\n")
+  cat("  count_model      :", x$count_model %||% "marginal", "\n")
   cat("  k                :", if (is.null(x$k)) "match input" else x$k, "\n")
   cat("  method           :", if (is.null(x$method)) "call-level" else fmt(x$method), "\n")
   cat("  smoothing        :", if (isTRUE(x$smoothing)) "all numeric" else fmt(x$smoothing), "\n")

@@ -403,11 +403,82 @@ fill_columns <- function(train, syn, st, subj_cols, time_cols,
 # with the autoregressive temporal model.
 synthesise_once <- function(data, st, subj_cols, time_cols, fixed_cols,
                             methods, control, na_map = NULL) {
+  if (identical(control$count_model, "conditional") &&
+      length(subj_cols) && length(st$nested)) {
+    return(synthesise_once_conditional(data, st, subj_cols, time_cols,
+                                       fixed_cols, methods, control, na_map))
+  }
   syn <- synth_skeleton(data, st, control)
   syn <- fill_columns(data, syn, st, subj_cols, time_cols,
                       subj_fixed = character(0), time_fixed = fixed_cols,
                       methods, control, na_map)
   syn <- syn[names(data)]          # restore (augmented) column order
+  rownames(syn) <- NULL
+  syn
+}
+
+# Covariate-conditional variant (count_model = "conditional"): the subject-level
+# covariates are synthesised first, each unit's row count is drawn from a CART
+# model of size on those covariates (leaf-bootstrap of real sizes), and the
+# structural-index sequence still comes from a real unit of the drawn size. The
+# synthesised covariates are broadcast into the skeleton (not re-synthesised), so
+# the size-covariate dependence is preserved; time-varying columns are then filled
+# by the usual autoregressive model.
+synthesise_once_conditional <- function(data, st, subj_cols, time_cols,
+                                        fixed_cols, methods, control, na_map) {
+  id  <- st$id
+  ord <- order_rows(data, st)
+  rdat <- data[ord, , drop = FALSE]
+  blocks <- split(seq_len(nrow(rdat)), rdat[[id]])
+  sizes  <- lengths(blocks)
+  by_size <- split(seq_along(blocks), sizes)
+  n_units <- length(blocks)
+
+  # Unit-level real table: one row per unit with its subject covariates + size.
+  first_rows <- vapply(blocks, `[`, integer(1), 1L)
+  unit <- rdat[first_rows, c(id, subj_cols), drop = FALSE]
+  unit_size <- as.integer(sizes)
+
+  # 1. subject covariates, one synthetic row per unit.
+  usyn <- data.frame(.row = seq_len(n_units))
+  usyn[[id]] <- seq_len(n_units)
+  usyn <- synth_sequence(unit, usyn, subj_cols, available = character(0),
+                         methods, control, na_map)
+
+  # 2. per-unit size, conditional on the synthesised covariates (CART); fall back
+  #    to the marginal size bootstrap when rpart is unavailable.
+  if (requireNamespace("rpart", quietly = TRUE)) {
+    size_model <- cart_fit(unit_size, unit[subj_cols], control, bootstrap = FALSE)
+    counts <- as.integer(round(cart_apply(size_model, usyn[subj_cols])))
+  } else {
+    counts <- unit_size[sample.int(n_units, n_units, replace = TRUE)]
+  }
+  counts <- pmax(counts, 1L)
+
+  # 3. build the skeleton: indices from a real unit of the drawn size (nearest if
+  #    that exact size is unseen), covariates broadcast from usyn.
+  keep  <- c(id, st$nested)
+  parts <- vector("list", n_units)
+  for (j in seq_len(n_units)) {
+    pool <- by_size[[as.character(counts[[j]])]]
+    if (is.null(pool)) pool <- which.min(abs(sizes - counts[[j]]))
+    u <- pool[sample.int(length(pool), 1L)]
+    block <- rdat[blocks[[u]], keep, drop = FALSE]
+    block[[id]] <- j
+    for (v in subj_cols) block[[v]] <- usyn[[v]][j]
+    parts[[j]] <- block
+  }
+  syn <- rbind_rows(parts)
+  if (!is.null(control$k) && nrow(syn) > control$k)
+    syn <- syn[seq_len(control$k), , drop = FALSE]
+  rownames(syn) <- NULL
+
+  # 4. time-varying columns (subject covariates already present in `syn`).
+  if (length(time_cols))
+    syn <- synth_temporal(data, syn, st, subj_cols, time_cols, fixed_cols,
+                          methods, control, na_map)
+
+  syn <- syn[names(data)]
   rownames(syn) <- NULL
   syn
 }

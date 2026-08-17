@@ -10,6 +10,7 @@ synth_control(
   method = NULL,
   smoothing = NULL,
   proper = FALSE,
+  count_model = c("marginal", "conditional"),
   k = NULL,
   cart = list(),
   forest = list(),
@@ -38,6 +39,14 @@ resolution applies to single-table \code{\link[=synth]{synth()}}; \code{\link[=s
 unsmoothed unless named explicitly.}
 
 \item{proper}{Logical; use proper (\code{TRUE}) vs improper (\code{FALSE}) synthesis.}
+
+\item{count_model}{How the number of rows per unit is drawn for nested /
+longitudinal data. \code{"marginal"} (default) resamples the observed unit sizes
+independently of any covariate. \code{"conditional"} synthesises the subject-level
+covariates first and draws each unit's size from a CART model of size on
+those covariates, so a dependence such as "sicker patients have more visits"
+is preserved. Only takes effect when the structure is nested and there are
+subject-level covariates; ignored for flat single-row-per-unit data.}
 
 \item{k}{Optional size of each synthetic dataset. \code{NULL} matches the input.}
 
