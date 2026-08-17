@@ -24,11 +24,24 @@ if (!requireNamespace("devtools", quietly = TRUE))
   stop("Install 'devtools' first: install.packages('devtools')")
 
 ## Confirm the version we are about to send, and that the maintainer email is
-## set (that is where win-builder mails the results).
+## set (that is where win-builder mails the results). DESCRIPTION uses
+## Authors@R, so there is no literal Maintainer field to read -- derive the
+## creator ("cre") from Authors@R instead.
 desc <- read.dcf(file.path(pkg, "DESCRIPTION"))
+maintainer <- local({
+  cols <- colnames(desc)
+  if ("Maintainer" %in% cols) return(desc[, "Maintainer"])
+  if ("Authors@R" %in% cols) {
+    people <- eval(parse(text = desc[, "Authors@R"]))
+    cre <- Filter(function(p) "cre" %in% p$role, people)
+    if (length(cre))
+      return(format(cre[[1L]], include = c("given", "family", "email")))
+  }
+  "(unknown -- check DESCRIPTION)"
+})
 message("Package : ", desc[, "Package"])
 message("Version : ", desc[, "Version"])
-message("Maint.  : ", desc[, "Maintainer"])
+message("Maint.  : ", maintainer)
 message("Uploading to win-builder (R-devel and R-release). ",
         "Results will be emailed to the maintainer address above.\n")
 
