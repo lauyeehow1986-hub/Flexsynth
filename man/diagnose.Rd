@@ -31,13 +31,16 @@ formal privacy guarantee, these utility diagnostics (and the risk
 diagnostics in \code{\link[=disclosure_risk]{disclosure_risk()}}) are how synthesis quality is judged.
 }
 \details{
-Three views are reported:
+Four views are reported:
 \itemize{
 \item \strong{Univariate} — per-variable marginal fit: a Kolmogorov-Smirnov
 statistic for numeric variables and a total-variation distance for
 categorical ones (both in \eqn{[0, 1]}; smaller is better).
 \item \strong{Correlation} — the Frobenius and mean absolute difference between
 the real and synthetic numeric correlation matrices.
+\item \strong{Association} — the mean and maximum absolute difference between the
+real and synthetic categorical association (Cramer's V) matrices, so
+dependence between factor variables is checked, not just numeric ones.
 \item \strong{Propensity (pMSE)} — a general utility score: a model is fitted to
 tell real from synthetic records; when they are indistinguishable the
 propensity mean squared error sits near its null expectation, so the

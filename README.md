@@ -50,11 +50,12 @@ It ships **two engines behind one interface**:
 - **Valid inference.** `pool_synth()` / `synth_glm()` combine an analysis across
   the `m` synthetic datasets with fully-synthetic variance rules (synthpop /
   Reiter), so confidence intervals and tests are correct rather than
-  over-optimistic.
+  over-optimistic; `compare_estimates()` scores real-vs-synthetic analyses by
+  confidence-interval overlap.
 - **Diagnostics.** `diagnose()` (marginal fit, correlation-matrix difference,
-  propensity pMSE) and `disclosure_risk()` (replicated uniques,
-  distance-to-closest-record, membership-inference AUC, and TCAP
-  attribute-disclosure via `target =`).
+  categorical association via Cramer's V, propensity pMSE) and
+  `disclosure_risk()` (replicated uniques, distance-to-closest-record,
+  membership-inference AUC, and TCAP attribute-disclosure via `target =`).
 - **Performance.** Optional `data.table` fast-path and parallel replicates
   (`synth_control(parallel = TRUE)`) with reproducible L'Ecuyer streams.
 

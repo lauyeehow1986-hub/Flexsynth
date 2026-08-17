@@ -54,6 +54,16 @@
   (lower `max_rows_per_person`, raise `epsilon`, use fewer bins). The warning is a
   console diagnostic for the data holder and is never a released quantity.
 
+* **Specific-utility comparison.** `compare_estimates()` fits the same analysis
+  on the real and synthetic data and reports, per term, the confidence-interval
+  overlap (Karr et al.) and the standardised difference of the estimates — the
+  analysis-specific "does my regression come out the same?" utility, complementing
+  the general marginal / pMSE views of `diagnose()`. Pools a multi-dataset result.
+
+* **Categorical association view in `diagnose()`.** A Cramer's V association-matrix
+  comparison is now reported alongside the numeric correlation view, so dependence
+  between factor variables is checked, not just numeric-numeric.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

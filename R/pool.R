@@ -228,6 +228,107 @@ synth_glm <- function(object, formula, family = stats::gaussian(),
              conf.level = conf.level)
 }
 
+#' Specific-utility comparison of an analysis on real vs synthetic data
+#'
+#' Fit the same analysis on the real data and on the synthetic data and compare
+#' the estimates. This is the *analysis-specific* utility measure — "does my
+#' regression come out the same?" — complementing the general marginal / pMSE
+#' diagnostics of [diagnose()]. For each term it reports the confidence-interval
+#' overlap (Karr et al. 2006; 1 = identical intervals, 0 = just touching,
+#' negative = disjoint) and the standardised difference of the estimates on the
+#' real standard-error scale (smaller is better).
+#'
+#' When `syn` is a multi-dataset [synth()] result its estimates are pooled with
+#' [pool_synth()] (so the synthetic standard errors reflect synthesis); a single
+#' synthetic `data.frame` is analysed directly. `analysis` uses the same contract
+#' as [pool_synth()].
+#'
+#' @param real The real `data.frame`.
+#' @param syn A `synth_result` (pooled) or a synthetic `data.frame`.
+#' @param analysis A function of one `data.frame` returning a fitted model
+#'   (`coef()`/`vcov()`) or a `list(estimate =, variance =)`.
+#' @param rule,population_inference Passed to [pool_synth()] when `syn` is a
+#'   multi-dataset result.
+#' @param conf.level Confidence level for both intervals (default `0.95`).
+#' @param ... Reserved.
+#'
+#' @return A `flexsynth_utility` object; `$estimates` has `term`, `est_real`,
+#'   `est_syn`, `overlap`, `std_diff`, and both intervals.
+#' @seealso [pool_synth()], [diagnose()].
+#' @export
+#' @examples
+#' d <- data.frame(id = 1:500, x = rnorm(500))
+#' d$y <- 1 + 2 * d$x + rnorm(500)
+#' res <- synth(d, ~ id, m = 5, seed = 1)
+#' compare_estimates(d, res, function(dat) lm(y ~ x, dat))
+compare_estimates <- function(real, syn, analysis,
+                              rule = c("synthpop", "reiter"),
+                              population_inference = TRUE, conf.level = 0.95,
+                              ...) {
+  if (!is.data.frame(real)) stop("`real` must be a data.frame.", call. = FALSE)
+  if (!is.function(analysis)) stop("`analysis` must be a function.", call. = FALSE)
+  rule <- match.arg(rule)
+  zc   <- stats::qnorm(1 - (1 - conf.level) / 2)
+
+  ## Real analysis: point estimate and normal interval from its own vcov.
+  ev_o  <- extract_est_var(analysis(real))
+  terms <- names(ev_o$est)
+  est_o <- ev_o$est; se_o <- sqrt(ev_o$var)
+
+  ## Synthetic side: pool a multi-dataset result, else a single fit.
+  if (inherits(syn, "synth_result")) {
+    pooled <- pool_synth(syn, analysis, rule = rule,
+                         population_inference = population_inference,
+                         conf.level = conf.level)
+    est_s <- pooled$estimates$estimate; se_s <- pooled$estimates$std.error
+    names(est_s) <- names(se_s) <- pooled$estimates$term
+  } else if (is.data.frame(syn)) {
+    ev_s  <- extract_est_var(analysis(syn))
+    est_s <- ev_s$est; se_s <- sqrt(ev_s$var)
+  } else {
+    stop("`syn` must be a synth_result or a data.frame.", call. = FALSE)
+  }
+
+  keep  <- intersect(terms, names(est_s))
+  lo_o  <- est_o[keep] - zc * se_o[keep]; uo_o <- est_o[keep] + zc * se_o[keep]
+  lo_s  <- est_s[keep] - zc * se_s[keep]; uo_s <- est_s[keep] + zc * se_s[keep]
+  inter <- pmin(uo_o, uo_s) - pmax(lo_o, lo_s)
+  overlap  <- 0.5 * (inter / (uo_o - lo_o) + inter / (uo_s - lo_s))
+  std_diff <- abs(est_o[keep] - est_s[keep]) / se_o[keep]
+
+  est <- data.frame(
+    term = keep, est_real = est_o[keep], est_syn = est_s[keep],
+    overlap = overlap, std_diff = std_diff,
+    ci_real_low = lo_o, ci_real_high = uo_o,
+    ci_syn_low = lo_s, ci_syn_high = uo_s,
+    row.names = NULL, stringsAsFactors = FALSE
+  )
+  structure(list(estimates = est, conf.level = conf.level,
+                 pooled = inherits(syn, "synth_result")),
+            class = "flexsynth_utility")
+}
+
+#' @export
+print.flexsynth_utility <- function(x, ...) {
+  cat("<flexsynth_utility> real-vs-synthetic estimate comparison",
+      if (x$pooled) "(synthetic pooled)" else "", "\n")
+  cat(sprintf("  CI overlap (1 = identical, <0 = disjoint) at %.0f%%; ",
+              100 * x$conf.level))
+  cat("std_diff = |est_real - est_syn| / se_real\n")
+  e <- x$estimates
+  disp <- data.frame(
+    term     = e$term,
+    est_real = round(e$est_real, 4),
+    est_syn  = round(e$est_syn, 4),
+    overlap  = round(e$overlap, 3),
+    std_diff = round(e$std_diff, 3),
+    stringsAsFactors = FALSE
+  )
+  print(disp, row.names = FALSE)
+  cat(sprintf("  mean overlap: %.3f\n", mean(e$overlap, na.rm = TRUE)))
+  invisible(x)
+}
+
 #' @export
 print.flexsynth_pool <- function(x, ...) {
   cat("<flexsynth_pool> pooled inference from", x$m, "synthetic dataset(s)\n")

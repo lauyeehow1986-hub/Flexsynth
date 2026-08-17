@@ -36,6 +36,7 @@ reference:
     contents:
       - pool_synth
       - synth_glm
+      - compare_estimates
 
   - title: Evaluation
     desc: >

@@ -86,6 +86,47 @@ correlation_diagnostics <- function(real, syn, vars) {
   )
 }
 
+# --- categorical association (Cramer's V) ---------------------------------
+
+# Bias-corrected Cramer's V between two categorical vectors, in [0, 1].
+cramers_v <- function(a, b) {
+  tab <- table(a, b)
+  if (nrow(tab) < 2L || ncol(tab) < 2L) return(NA_real_)
+  chi <- suppressWarnings(stats::chisq.test(tab, correct = FALSE)$statistic)
+  n   <- sum(tab)
+  phi2 <- chi / n
+  r <- nrow(tab); k <- ncol(tab)
+  phi2c <- max(0, phi2 - (r - 1) * (k - 1) / (n - 1))
+  rc <- r - (r - 1)^2 / (n - 1); kc <- k - (k - 1)^2 / (n - 1)
+  denom <- min(rc - 1, kc - 1)
+  if (denom <= 0) return(NA_real_)
+  sqrt(phi2c / denom)
+}
+
+# Compare the pairwise categorical-association (Cramer's V) matrices of the real
+# and synthetic data, mirroring correlation_diagnostics for numeric variables.
+association_diagnostics <- function(real, syn, vars) {
+  cat_v <- vars[vapply(vars, function(v)
+    is.factor(real[[v]]) || is.character(real[[v]]) || is.logical(real[[v]]),
+    logical(1))]
+  if (length(cat_v) < 2L) return(NULL)
+  vmat <- function(df) {
+    m <- matrix(NA_real_, length(cat_v), length(cat_v),
+                dimnames = list(cat_v, cat_v))
+    for (i in seq_along(cat_v)) for (j in seq_along(cat_v)) if (i < j) {
+      v <- cramers_v(df[[cat_v[i]]], df[[cat_v[j]]])
+      m[i, j] <- m[j, i] <- v
+    }
+    m
+  }
+  vr <- vmat(real); vs <- vmat(syn)
+  ut <- upper.tri(vr)
+  diff <- (vr - vs)[ut]; diff <- diff[is.finite(diff)]
+  list(vars = cat_v, real = vr, syn = vs,
+       mean_abs_diff = if (length(diff)) mean(abs(diff)) else NA_real_,
+       max_abs_diff  = if (length(diff)) max(abs(diff)) else NA_real_)
+}
+
 # --- propensity score utility (pMSE) --------------------------------------
 
 # General utility: fit a model discriminating real from synthetic; if the two
@@ -147,13 +188,16 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
 #' formal privacy guarantee, these utility diagnostics (and the risk
 #' diagnostics in [disclosure_risk()]) are how synthesis quality is judged.
 #'
-#' Three views are reported:
+#' Four views are reported:
 #' \itemize{
 #'   \item **Univariate** — per-variable marginal fit: a Kolmogorov-Smirnov
 #'     statistic for numeric variables and a total-variation distance for
 #'     categorical ones (both in \eqn{[0, 1]}; smaller is better).
 #'   \item **Correlation** — the Frobenius and mean absolute difference between
 #'     the real and synthetic numeric correlation matrices.
+#'   \item **Association** — the mean and maximum absolute difference between the
+#'     real and synthetic categorical association (Cramer's V) matrices, so
+#'     dependence between factor variables is checked, not just numeric ones.
 #'   \item **Propensity (pMSE)** — a general utility score: a model is fitted to
 #'     tell real from synthetic records; when they are indistinguishable the
 #'     propensity mean squared error sits near its null expectation, so the
@@ -214,6 +258,7 @@ diagnose <- function(real, syn, vars = NULL, propensity = "logistic", ...) {
     list(
       univariate  = univariate_diagnostics(real, syn, cols),
       correlation = correlation_diagnostics(real, syn, cols),
+      association = association_diagnostics(real, syn, cols),
       pmse        = pmse_diagnostics(real, syn, cols, propensity),
       vars        = cols,
       n_real      = nrow(real),
@@ -250,6 +295,13 @@ print.flexsynth_diagnostics <- function(x, ...) {
     cat(sprintf("\nCorrelation structure (%d numeric vars):\n", length(cr$vars)))
     cat(sprintf("  Frobenius diff: %.4f   mean |diff|: %.4f   max |diff|: %.4f\n",
                 cr$frobenius, cr$mean_abs_diff, cr$max_abs_diff))
+  }
+
+  if (!is.null(x$association)) {
+    a <- x$association
+    cat(sprintf("\nCategorical association (Cramer's V, %d vars):\n", length(a$vars)))
+    cat(sprintf("  mean |diff|: %.4f   max |diff|: %.4f\n",
+                a$mean_abs_diff, a$max_abs_diff))
   }
 
   if (!is.null(x$pmse)) {
