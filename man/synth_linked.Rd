@@ -77,12 +77,22 @@ kept per parent for each child table (a single integer for all child tables,
 or a named list keyed by table name); the root cap is 1. Each table's variable
 marginals and a children-per-parent count histogram are measured under one
 exactly-composed budget; synthetic children copy the synthetic parent's
-surrogate key so referential integrity still holds by construction. Two
-first-cut limitations hold under DP: child variables are modelled by their own
-within-table marginals (cross-table statistical conditioning is not preserved,
-only referential integrity), and within-table longitudinal structure is not
-modelled. \code{constraints} are refused under DP. See
-\code{vignette("differential-privacy")}.
+surrogate key so referential integrity still holds by construction. By default
+a child's variables are modelled by their own within-table marginals
+(referential integrity is preserved, but not cross-table statistical
+dependence) and its repeated rows are treated as exchangeable. Two opt-ins in
+\code{\link[=dp_control]{dp_control()}} add structure at extra, exactly-composed budget:
+\code{cross_table = TRUE} conditions each child variable on its synthetic parent's
+attributes (so parent \eqn{\to} child dependence, not just referential
+integrity, survives the noise), and \code{longitudinal = TRUE} (or a character
+vector of child-table names) models a child's repeated rows as a within-unit
+DP Markov trajectory — an initial-state model plus per-variable
+\eqn{P(v_t \mid v_{t-1})} transitions — so within-table longitudinal structure
+such as visit-to-visit autocorrelation is retained; the two combine. A
+longitudinally-modelled child needs a branching cap \eqn{\ge} 2 in
+\code{max_rows_per_person}, and its recoverable temporal signal falls as the noise
+grows (deeper nesting, larger caps, finer \code{bins}, or smaller \eqn{\epsilon}).
+\code{constraints} are refused under DP. See \code{vignette("differential-privacy")}.
 }
 \examples{
 patients <- data.frame(id = 1:20,

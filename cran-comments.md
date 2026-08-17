@@ -1,9 +1,10 @@
 ## Submission
 
-This is the first CRAN submission of `flexsynth` (version 0.1.1). Version 0.1.0
-was tagged on GitHub only; 0.1.1 fixes a bug in the optional `ctree` method that
-win-builder R-devel surfaced (see NEWS.md), where `partykit` is available and a
-previously-skipped test runs.
+This is the first CRAN submission of `flexsynth` (version 0.1.2). Versions 0.1.0
+and 0.1.1 were tagged on GitHub only. 0.1.1 fixed a bug in the optional `ctree`
+method that win-builder R-devel surfaced; 0.1.2 is a documentation-only change
+that corrects a stale limitation note in `?synth_linked` (see NEWS.md). No code
+behaviour changed.
 
 ## R CMD check results
 

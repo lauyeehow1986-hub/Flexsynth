@@ -1,3 +1,15 @@
+# flexsynth 0.1.2
+
+* Documentation: `?synth_linked` previously stated, as flat limitations, that
+  under differential privacy (Track B) cross-table statistical conditioning "is
+  not preserved" and within-table longitudinal structure "is not modelled". That
+  text predated the `dp_control(cross_table = ...)` and
+  `dp_control(longitudinal = ...)` opt-ins, which do model both (parent-conditioned
+  child variables and a within-unit DP Markov trajectory over a child's repeated
+  rows), and so understated the package. The roxygen now documents the default
+  (own within-table marginals; exchangeable rows) and both opt-ins accurately.
+  Behaviour is unchanged.
+
 # flexsynth 0.1.1
 
 * **Bug fix: `method = "ctree"` on a bare `character` target.** The `partykit`
