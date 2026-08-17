@@ -120,6 +120,7 @@ synth <- function(data,
   new_synth_result(
     syn = syn, m = as.integer(m), n = nrow(data), method = methods,
     structure = structure, visit_sequence = synth_cols, fixed = fixed_cols,
-    subject = subj_cols, privacy = NULL, seed = seed, call = match.call()
+    subject = subj_cols, privacy = NULL, seed = seed, call = match.call(),
+    proper = isTRUE(tuning$proper)
   )
 }

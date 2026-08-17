@@ -47,6 +47,10 @@ It ships **two engines behind one interface**:
 - **Constraints / temporal logic.** `rule()` enforces row-wise or per-unit
   constraints (e.g. `dbp <= sbp`, monotone length-of-stay) by unit-grain
   rejection sampling.
+- **Valid inference.** `pool_synth()` / `synth_glm()` combine an analysis across
+  the `m` synthetic datasets with fully-synthetic variance rules (synthpop /
+  Reiter), so confidence intervals and tests are correct rather than
+  over-optimistic.
 - **Diagnostics.** `diagnose()` (marginal fit, correlation-matrix difference,
   propensity pMSE) and `disclosure_risk()` (replicated uniques,
   distance-to-closest-record, membership-inference AUC).
@@ -111,6 +115,16 @@ syn <- as.data.frame(synth(df, structure = ~ id / visit, seed = 1))
 d <- diagnose(real = df, syn = syn)
 plot(d)                                  # overlaid marginals
 disclosure_risk(real = df, syn = syn)
+```
+
+### Valid inference from synthetic data
+
+```r
+# Analyse all m synthetic sets and pool, so the standard errors account for
+# synthesis (a single set analysed naively under-states them).
+res <- synth(df, structure = ~ id / visit, m = 10, seed = 1)
+synth_glm(res, sbp ~ age)                 # pooled linear model
+# any estimator works via pool_synth(res, function(d) <fit returning coef/vcov>)
 ```
 
 ### Opt into differential privacy (Track B)

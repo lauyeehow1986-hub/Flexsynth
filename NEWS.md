@@ -1,3 +1,31 @@
+# flexsynth 0.2.0
+
+## New features
+
+* **Valid inference from synthetic data.** `pool_synth()` fits an analysis on
+  each of the `m` synthetic datasets and combines the results with a standard
+  error that reflects the extra variability synthesis introduces — a single
+  synthetic dataset analysed naively gives standard errors that are too small.
+  Two fully-synthetic combining rules are provided (`rule=`): the large-sample
+  synthpop estimators of Raab, Nowok & Dibben (2016) (default, matching
+  `synthpop::summary.fit.synds`) and the classic Reiter (2003) estimator. The
+  analysis may be any model with `coef()`/`vcov()` methods or a plain
+  `list(estimate=, variance=)`. `synth_glm()` is a convenience wrapper for the
+  linear / generalised-linear case. `population_inference` toggles between
+  population- and sample-level standard errors. Track B (DP) results are refused
+  (DP inference must additionally account for the noise). The `synth_result`
+  now records whether `proper` synthesis was used, which selects the correct
+  variance formula.
+
+## Bug fixes
+
+* **`method = "norm"` / `"normrank"` no longer crash on missing data.** The
+  linear-model fit dropped `NA` rows via `model.matrix()` while keeping the
+  full-length response, causing `"'qr' and 'y' must have the same number of
+  rows"`. The fit now uses complete cases, and prediction propagates a missing
+  value where a synthetic predictor is itself missing rather than erroring.
+  (A dedicated missingness *model* remains future work.)
+
 # flexsynth 0.1.2
 
 * Documentation: `?synth_linked` previously stated, as flat limitations, that

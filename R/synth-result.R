@@ -1,7 +1,8 @@
 # Constructor + methods for the object returned by synth().
 
 new_synth_result <- function(syn, m, n, method, structure, visit_sequence,
-                             fixed, subject, privacy, seed, call) {
+                             fixed, subject, privacy, seed, call,
+                             proper = FALSE) {
   structure(
     list(
       syn = syn,                     # data.frame (m == 1) or list of them
@@ -13,6 +14,7 @@ new_synth_result <- function(syn, m, n, method, structure, visit_sequence,
       fixed = fixed,
       subject = subject,
       privacy = privacy,
+      proper = isTRUE(proper),       # whether proper (posterior-predictive) synthesis
       seed = seed,
       call = call
     ),

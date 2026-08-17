@@ -240,30 +240,49 @@ norm_fit <- function(y, x, control) {
   df <- data.frame(.y = y, x, check.names = FALSE)
   mt <- if (ncol(x)) stats::terms(stats::as.formula(".y ~ ."), data = df)
         else          stats::terms(stats::as.formula(".y ~ 1"), data = df)
-  X    <- stats::model.matrix(mt, df)
-  qrX  <- qr(X)
-  beta <- qr.coef(qrX, y)
+  # Fit on complete cases only: model.matrix() drops NA rows, so the response
+  # must be subset to match or qr.coef() fails on a length mismatch. Draws still
+  # use the model on synthetic (NA-free) predictors; the clamp range and the
+  # rank map use the observed (non-NA) target.
+  cc <- stats::complete.cases(df)
+  if (!any(cc))
+    stop("method = \"norm\": no complete cases to fit on.", call. = FALSE)
+  Xc   <- stats::model.matrix(mt, df[cc, , drop = FALSE])
+  yc   <- y[cc]
+  qrX  <- qr(Xc)
+  beta <- qr.coef(qrX, yc)
   beta[is.na(beta)] <- 0
-  resid  <- as.vector(y - X %*% beta)
-  dfres  <- max(nrow(X) - qrX$rank, 1L)
+  resid  <- as.vector(yc - Xc %*% beta)
+  dfres  <- max(nrow(Xc) - qrX$rank, 1L)
   s2     <- sum(resid^2) / dfres
   list(mt = mt, beta = beta, s2 = s2, df = dfres,
-       R = qr.R(qrX), full_rank = qrX$rank == ncol(X),
-       xref = x, y = y, rng = range(y), as_int = is.integer(y))
+       R = qr.R(qrX), full_rank = qrX$rank == ncol(Xc),
+       xref = x, y = y, rng = range(y, na.rm = TRUE), as_int = is.integer(y))
 }
 
 # Continuous prediction mu + noise; `proper` also draws (sigma^2, beta) from the
 # Bayesian posterior. Shared by norm (clamp / integerise) and normrank (rank map).
 norm_continuous <- function(model, x, control) {
   x    <- prep_predictors(x, levels_from = model$xref)
-  Xs   <- stats::model.matrix(model$mt, data.frame(.y = 0, x, check.names = FALSE))
   beta <- model$beta; s2 <- model$s2
   if (isTRUE(control$proper) && model$full_rank) {
     s2   <- model$s2 * model$df / stats::rchisq(1L, model$df)
     Rinv <- backsolve(model$R, diag(length(beta)))
     beta <- beta + sqrt(s2) * as.vector(Rinv %*% stats::rnorm(length(beta)))
   }
-  as.vector(Xs %*% beta) + stats::rnorm(nrow(Xs), 0, sqrt(s2))
+  # Predict only on rows whose predictors are all present; a synthetic predictor
+  # can be NA (its own missingness was preserved upstream), and model.matrix()
+  # would silently drop those rows, breaking the length. Missing predictors give
+  # a missing prediction rather than a crash.
+  out <- rep(NA_real_, nrow(x))
+  cc  <- stats::complete.cases(x)
+  if (any(cc)) {
+    Xs <- stats::model.matrix(model$mt,
+                              data.frame(.y = 0, x[cc, , drop = FALSE],
+                                         check.names = FALSE))
+    out[cc] <- as.vector(Xs %*% beta) + stats::rnorm(nrow(Xs), 0, sqrt(s2))
+  }
+  out
 }
 
 norm_draw <- function(model, x, n, control) {
@@ -278,11 +297,16 @@ method_norm <- list(fit = norm_fit, draw = norm_draw,
 # normrank: predict on the continuous scale, then map each synthetic value to the
 # observed value at the matching rank, so the marginal is preserved exactly.
 normrank_draw <- function(model, x, n, control) {
-  z   <- norm_continuous(model, x, control)
-  obs <- sort(model$y)
-  q   <- (rank(z, ties.method = "first") - 0.5) / length(z)
-  idx <- pmax(1L, pmin(length(obs), ceiling(q * length(obs))))
-  obs[idx]
+  z   <- norm_continuous(model, x, control)          # may hold NA (missing preds)
+  obs <- sort(model$y)                               # observed, non-NA, ascending
+  out <- model$y[rep(NA_integer_, length(z))]        # typed NA vector
+  fin <- is.finite(z)
+  if (any(fin)) {
+    q   <- (rank(z[fin], ties.method = "first") - 0.5) / sum(fin)
+    idx <- pmax(1L, pmin(length(obs), ceiling(q * length(obs))))
+    out[fin] <- obs[idx]
+  }
+  out
 }
 method_normrank <- list(fit = norm_fit, draw = normrank_draw,
                         numeric = TRUE, categorical = FALSE, needs_predictors = TRUE)
