@@ -438,6 +438,8 @@ synth_linked_dp <- function(tables, hierarchy, dp, tuning, m, seed) {
           cdata[[t]], hierarchy$fk[[t]], hierarchy$own[[t]], dom, vt, nbins,
           dp, calib, parent_ctx, parent_nbins,
           held = held_flag[[t]], ord = ord, cross = cross, tran_parent = tpar)
+        dp_longi_noise_warn(t, cdata[[t]], hierarchy$fk[[t]], nbins, calib,
+                            caps$local[[t]])
       } else {
         codes <- stats::setNames(
           lapply(vt, function(v) dp_encode(dom[[v]], cdata[[t]][[v]])), vt)

@@ -45,6 +45,15 @@
   0.1.x; set `smoothing = FALSE` (now accepted, along with `"none"`) to restore
   the previous behaviour. `TRUE` / `"density"` still smooth every numeric column.
 
+* **DP longitudinal noise guidance.** `synth_linked()` with
+  `dp_control(longitudinal = ...)` now warns when a child's transition histogram
+  will be swamped by the DP noise, so its within-unit autocorrelation would not
+  survive. The transition sensitivity is `path_cap[parent] * (branching_cap - 1)`,
+  so a deep hierarchy, a large branching cap, fine `bins`, or a small `epsilon`
+  all inflate the noise; the warning names the table and points to the knobs
+  (lower `max_rows_per_person`, raise `epsilon`, use fewer bins). The warning is a
+  console diagnostic for the data holder and is never a released quantity.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

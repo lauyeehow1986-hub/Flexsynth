@@ -76,6 +76,32 @@ dp_resolve_longitudinal <- function(dp, hierarchy, caps, tables) {
   use
 }
 
+# Operator-facing utility warning: when the calibrated per-cell noise is large
+# relative to the average occupancy of a first-order transition cell, the
+# within-unit autocorrelation of a longitudinally-modelled DP child will not
+# survive the noise. The transition sensitivity is path_cap[parent] *
+# (branching_cap - 1), so a deep hierarchy, a large branching cap, fine bins, or
+# a small epsilon all inflate the noise. Computed from the (capped) real data the
+# operator already holds -- it is a console diagnostic, never a released value.
+dp_longi_noise_warn <- function(t, cdata_t, fk, nbins, calib, cap) {
+  noise_sd <- calib$sigma %||% calib$scale
+  if (is.null(noise_sd) || !is.finite(noise_sd) || !length(nbins)) return(invisible())
+  n_units <- length(unique(key_string(cdata_t, fk)))
+  n_pairs <- max(nrow(cdata_t) - n_units, 0L)      # consecutive within-unit pairs
+  if (n_pairs == 0L) return(invisible())
+  cells    <- mean(nbins)^2                          # representative transition cells
+  mean_occ <- n_pairs / cells
+  if (noise_sd > 3 * max(mean_occ, 1)) {
+    warning(sprintf(paste0(
+      "linked DP longitudinal: for child table '%s' the per-cell noise (sd ~ %.1f) ",
+      "dwarfs the average transition-cell occupancy (~%.2f pairs/cell), so ",
+      "within-unit autocorrelation may not survive. Lower its max_rows_per_person ",
+      "(branching cap %d drives the transition sensitivity), raise epsilon, or use ",
+      "fewer bins."), t, noise_sd, mean_occ, as.integer(cap)), call. = FALSE)
+  }
+  invisible()
+}
+
 # Number of initial-state marginals a longitudinally-modelled child contributes:
 # one-way for every variable, plus all pairwise when a Chow-Liu tree is requested
 # and there are >= 2 variables. (Transitions are counted separately - one per
