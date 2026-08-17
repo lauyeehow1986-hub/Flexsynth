@@ -1,10 +1,11 @@
 ## Submission
 
-This is the first CRAN submission of `flexsynth` (version 0.1.2). Versions 0.1.0
-and 0.1.1 were tagged on GitHub only. 0.1.1 fixed a bug in the optional `ctree`
-method that win-builder R-devel surfaced; 0.1.2 is a documentation-only change
-that corrects a stale limitation note in `?synth_linked` (see NEWS.md). No code
-behaviour changed.
+This is the first CRAN submission of `flexsynth` (version 0.2.0). Versions 0.1.0
+through 0.1.2 were tagged on GitHub only. 0.2.0 adds valid-inference helpers
+(`pool_synth()`, `synth_glm()`, `compare_estimates()`), a missing-data model,
+attribute-disclosure (TCAP) risk, default continuous smoothing, a
+covariate-conditional row-count model, and a categorical-association diagnostic;
+see NEWS.md for the full list.
 
 ## R CMD check results
 

@@ -241,6 +241,7 @@ The cheaper one-way-product reference remains available as
 ## Learn more
 
 - `vignette("getting-started")` — getting started
+- `vignette("valid-inference")` — pooled inference and attribute-disclosure (TCAP)
 - `vignette("nested-longitudinal")` — repeated-measures data
 - `vignette("linked-cardiac")` — multi-table linked synthesis
 - `vignette("differential-privacy")` — Track B

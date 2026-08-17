@@ -1,0 +1,169 @@
+---
+title: "Valid inference and attribute-disclosure control"
+output:
+  litedown::html_format:
+    meta:
+      css: ["@default"]
+vignette: >
+  %\VignetteEngine{litedown::vignette}
+  %\VignetteIndexEntry{Valid inference and attribute-disclosure control}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+set.seed(1)
+library(flexsynth)
+```
+
+## Why analysing one synthetic dataset is not enough
+
+`synth()` regenerates every column from a model fitted on the real data, using a
+freshly drawn skeleton — so its output is *fully synthetic* in the Reiter (2003)
+sense. That randomness is real: run the synthesiser twice and your regression
+coefficients move a little. An analyst who fits a model on a **single** synthetic
+dataset and reports its ordinary standard errors is ignoring that extra
+variability, and the standard errors come out too small — confidence intervals
+that are too narrow, p-values that are too keen.
+
+The fix is the reason `synth()` can emit `m > 1` datasets. Fit the analysis on
+each, then combine the estimates with a rule that adds the between-synthesis
+variability back in. `flexsynth` does this for you.
+
+```{r data}
+n <- 800
+real <- data.frame(
+  id  = seq_len(n),
+  age = round(rnorm(n, 62, 11)),
+  sex = sample(c("F", "M"), n, replace = TRUE, prob = c(0.45, 0.55))
+)
+real$sbp <- round(0.6 * real$age + ifelse(real$sex == "M", 5, 0) +
+                    rnorm(n, 90, 10))
+
+res <- synth(real, structure = ~ id, m = 10, seed = 1)
+res
+```
+
+We asked for `m = 10` synthetic datasets. For pooled inference, more is better;
+`m >= 5` is a sensible floor.
+
+## `synth_glm()` — the common case
+
+For a linear or generalised-linear model, `synth_glm()` fits it on every
+synthetic dataset and pools the result in one call.
+
+```{r glm}
+pooled <- synth_glm(res, sbp ~ age + sex)
+pooled
+```
+
+Compare that with the model fitted on the **real** data — the estimand we are
+trying to recover:
+
+```{r real-fit}
+summary(lm(sbp ~ age + sex, data = real))$coefficients[, 1:2]
+```
+
+The pooled point estimates land on the real coefficients (the `age` slope near
+0.6, the male offset near 5), and the pooled standard errors are honest about the
+cost of synthesis rather than pretending a single draw was the truth.
+
+By default the standard error targets the population the real data was drawn
+from. If instead you want the standard error an analyst of the *original* sample
+would have reported, set `population_inference = FALSE`.
+
+## `pool_synth()` — any estimator
+
+`synth_glm()` is a thin wrapper. For anything else — a quantile, a survival
+model, a hand-rolled statistic — pass `pool_synth()` a function that runs on one
+synthetic `data.frame` and returns either a fitted model (with `coef()` /
+`vcov()` methods) or an explicit `list(estimate =, variance =)`.
+
+```{r pool}
+# A proportion and its variance, supplied directly.
+pool_synth(res, function(d) {
+  p <- mean(d$sex == "M")
+  list(estimate = c(prop_male = p),
+       variance = c(prop_male = p * (1 - p) / nrow(d)))
+})
+```
+
+Two combining rules are available via `rule =`: the default `"synthpop"`
+estimators of Raab, Nowok & Dibben (2016) — stable at small `m` and never
+negative — and the classic `"reiter"` fully-synthetic estimator, which is
+theoretically standard but needs `m >= 2` and can occasionally return a negative
+variance (reported as `NA`).
+
+## `compare_estimates()` — analysis-specific utility
+
+`diagnose()` (see `vignette("getting-started")`) asks a general question: can a
+model tell real from synthetic records? `compare_estimates()` asks the question
+an analyst actually cares about: *does my regression come out the same?* It fits
+the analysis on both sides — pooling the synthetic side automatically — and
+reports, per term, the confidence-interval overlap (Karr et al. 2006; 1 means
+identical intervals, 0 means they just touch, negative means disjoint) and the
+standardised difference of the estimates.
+
+```{r compare}
+compare_estimates(real, res, function(d) lm(sbp ~ age + sex, data = d))
+```
+
+A mean overlap near 1 with small standardised differences is what you hope to
+see: the synthetic data supports the same conclusions as the real data.
+
+## Attribute disclosure — TCAP
+
+Reproducing an analysis well is a *utility* win, but the same key-to-target
+structure an analyst exploits is what an attacker exploits. `disclosure_risk()`
+gains a `target =` argument for exactly this: the **Target Correct Attribution
+Probability** (TCAP; Taub, Elliot et al.). An attacker who knows a real record's
+quasi-identifier keys looks up the synthetic records sharing those keys and reads
+off the conditional distribution of the sensitive `target`; TCAP is the mean
+synthetic probability of the true value, and is compared with a marginal-only
+attacker so the `lift` is the *excess* attribution the keys buy.
+
+TCAP is meant for categorical keys and target, so we use a small categorical
+dataset where a sensitive status depends on the quasi-identifiers.
+
+```{r tcap-data}
+m <- 800
+clinic <- data.frame(
+  region = sample(c("N", "S", "E", "W"), m, replace = TRUE),
+  agecat = sample(c("40s", "50s", "60s", "70s"), m, replace = TRUE)
+)
+# hypertension risk rises steeply with age, with a small regional bump.
+prob_htn <- c("40s" = 0.12, "50s" = 0.40, "60s" = 0.75, "70s" = 0.93)
+reg_bump <- c("N" = 0, "S" = 0, "E" = 0.03, "W" = 0.05)
+p <- pmin(0.98, prob_htn[clinic$agecat] + reg_bump[clinic$region])
+clinic$hypertension <- ifelse(runif(m) < p, "yes", "no")
+clinic$id <- seq_len(m)
+
+cres <- synth(clinic, ~ id, m = 1, seed = 1)
+```
+
+Name the sensitive column as `target`; the remaining quasi-identifiers become the
+attacker's keys.
+
+```{r tcap}
+disclosure_risk(clinic, cres,
+                quasi  = c("region", "agecat", "hypertension"),
+                target = "hypertension",
+                seed   = 1)
+```
+
+Read the `Attribute disclosure` block: a `lift` well above zero means the
+synthetic data lets an attacker attribute the true `hypertension` status
+meaningfully better than the marginal rate alone — here because `agecat` carries
+real signal about it. That is a governance signal, not a verdict: some attribute
+association is the whole point of useful data. Weigh the lift against how
+sensitive the target is and who receives the release. A `lift` near zero means
+the keys add almost nothing beyond the margin.
+
+## Where this fits
+
+Track A output must never be described as differentially private; the tools here
+help you decide whether its utility / disclosure balance is acceptable for a
+given release. For a formal privacy guarantee instead, see
+`vignette("differential-privacy")`. Note that pooled inference (`pool_synth()`,
+`synth_glm()`) is a Track A tool — valid inference from a differentially private
+release must additionally account for the DP noise and is out of scope here.
