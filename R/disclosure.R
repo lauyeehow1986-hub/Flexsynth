@@ -20,6 +20,37 @@ subsample <- function(df, n) {
   df[sort(sample.int(nrow(df), n)), , drop = FALSE]
 }
 
+# TCAP: Target Correct Attribution Probability (Taub, Elliot et al.). An attacker
+# who knows a real record's quasi-identifier `keys` looks up the synthetic
+# records sharing those key values and reads off the conditional distribution of
+# the sensitive `target`; the CAP for that record is the synthetic probability of
+# its true target value. TCAP averages this over real records that have any
+# synthetic key match (`coverage`). It is compared with a marginal-only attacker
+# (`baseline`, the synthetic marginal probability of the true target), so the
+# `lift` is the excess attribution the key-conditioning buys. Meant for
+# categorical keys and target; continuous columns should be coarsened first.
+tcap_risk <- function(real, syn, keys, target, max_records) {
+  rl <- subsample(real, max_records)
+  rk <- row_keys(rl, keys); rt <- as.character(rl[[target]])
+  sk <- row_keys(syn, keys); st <- as.character(syn[[target]])
+
+  syn_by_key <- split(st, sk)                  # synthetic targets per key value
+  cap <- vapply(seq_along(rk), function(i) {
+    g <- syn_by_key[[rk[i]]]
+    if (is.null(g)) NA_real_ else mean(g == rt[i])
+  }, numeric(1))
+  covered <- !is.na(cap)
+
+  marg <- table(st) / length(st)               # marginal-only attacker
+  base <- as.numeric(marg[rt]); base[is.na(base)] <- 0
+
+  tcap <- if (any(covered)) mean(cap[covered]) else NA_real_
+  list(target = target, keys = keys,
+       tcap = tcap, baseline = mean(base),
+       lift = tcap - mean(base),
+       coverage = mean(covered), n_scored = length(rk))
+}
+
 #' Empirical disclosure-risk diagnostics for synthetic data
 #'
 #' Reports how much a synthetic dataset could leak about the real records it was
@@ -40,6 +71,13 @@ subsample <- function(df, n) {
 #'     to the synthetic data is simulated. The reported AUC (0.5 = no advantage)
 #'     and advantage (`2 * AUC - 1`) measure how well training membership can be
 #'     inferred.
+#'   \item **Attribute disclosure (TCAP)** — if a sensitive `target` column is
+#'     named, the Target Correct Attribution Probability (Taub, Elliot et al.):
+#'     an attacker who knows a real record's quasi-identifier keys reads the
+#'     conditional distribution of the target off the synthetic records that share
+#'     those keys. `tcap` is the mean synthetic probability of the true target
+#'     over matched records, `baseline` the marginal-only attacker, and `lift`
+#'     the excess the key-conditioning buys. Meant for categorical keys / target.
 #' }
 #'
 #' Quasi-identifiers should be the genuinely identifying columns; exclude
@@ -53,6 +91,10 @@ subsample <- function(df, n) {
 #'   named list, or [synth_linked()] `synth_linked_result`.
 #' @param quasi Character vector of quasi-identifier columns; defaults to all
 #'   columns present in both frames.
+#' @param target Optional single sensitive column for the attribute-disclosure
+#'   (TCAP) measure; the quasi-identifiers minus `target` are used as the keys.
+#'   `NULL` (default) skips it. For a linked (list) input it is assessed only on
+#'   the table that contains it.
 #' @param holdout Optional `data.frame` of real records *excluded* from
 #'   synthesis, enabling the membership-inference check.
 #' @param max_records Cap on the number of rows used for the distance
@@ -73,17 +115,21 @@ subsample <- function(df, n) {
 #' )
 #' res <- synth(df, ~ id, seed = 1)
 #' disclosure_risk(df, res, quasi = c("age", "sex"))
-disclosure_risk <- function(real, syn, quasi = NULL, holdout = NULL,
-                            max_records = 2000L, seed = NULL, ...) {
+disclosure_risk <- function(real, syn, quasi = NULL, target = NULL,
+                            holdout = NULL, max_records = 2000L, seed = NULL,
+                            ...) {
   syn <- as_risk_frame(syn)
 
   if (is.list(real) && !is.data.frame(real) &&
       is.list(syn) && !is.data.frame(syn)) {
     tbls <- intersect(names(real), names(syn))
     if (!length(tbls)) stop("`real` and `syn` share no table names.", call. = FALSE)
-    out <- stats::setNames(lapply(tbls, function(t)
-      disclosure_risk(real[[t]], syn[[t]], quasi = quasi,
-                      max_records = max_records, seed = seed)), tbls)
+    out <- stats::setNames(lapply(tbls, function(t) {
+      # A target applies only to the table that contains it.
+      tgt <- if (!is.null(target) && target %in% names(real[[t]])) target else NULL
+      disclosure_risk(real[[t]], syn[[t]], quasi = quasi, target = tgt,
+                      max_records = max_records, seed = seed)
+    }), tbls)
     return(structure(out, class = "flexsynth_disclosure_list"))
   }
 
@@ -99,6 +145,19 @@ disclosure_risk <- function(real, syn, quasi = NULL, holdout = NULL,
     stop(sprintf("`quasi` not present in both frames: %s",
                  paste(miss, collapse = ", ")), call. = FALSE)
   if (!length(quasi)) stop("no quasi-identifier columns to compare.", call. = FALSE)
+
+  ## --- attribute disclosure (TCAP), if a sensitive target is named --------
+  attr_res <- NULL
+  if (!is.null(target)) {
+    if (length(target) != 1L || !target %in% cols)
+      stop(sprintf("`target` must be a single column present in both frames: %s",
+                   target), call. = FALSE)
+    keys <- setdiff(quasi, target)
+    if (!length(keys))
+      stop("attribute disclosure needs at least one quasi-identifier key besides the target.",
+           call. = FALSE)
+    attr_res <- tcap_risk(real, syn, keys, target, max_records)
+  }
 
   ## --- replicated uniques (over the full data, exact match) ---------------
   rk <- row_keys(real, quasi)
@@ -154,7 +213,8 @@ disclosure_risk <- function(real, syn, quasi = NULL, holdout = NULL,
         median_real  = stats::median(dcr_real),
         q05_syn      = stats::quantile(dcr_syn, 0.05, names = FALSE)
       ),
-      membership = mi
+      membership = mi,
+      attribute = attr_res
     ),
     class = "flexsynth_disclosure"
   )
@@ -192,6 +252,20 @@ print.flexsynth_disclosure <- function(x, ...) {
                 m$auc, m$advantage, m$n_member, m$n_nonmember))
   } else {
     cat("\nMembership inference: not run (supply `holdout` of non-training records).\n")
+  }
+
+  if (!is.null(x$attribute)) {
+    a <- x$attribute
+    cat(sprintf("\nAttribute disclosure (TCAP, target = %s):\n", a$target))
+    cat(sprintf("  TCAP %.3f   baseline %.3f   lift %+.3f   (coverage %.1f%%, keys: %s)\n",
+                a$tcap, a$baseline, a$lift, 100 * a$coverage,
+                paste(a$keys, collapse = ", ")))
+    cat("  ", if (isTRUE(a$lift > 0.1))
+      "key-conditioning attributes the target well above the margin -> inspect"
+      else "attribution barely above the marginal baseline -> low attribute risk",
+      "\n", sep = "")
+  } else {
+    cat("\nAttribute disclosure: not run (supply `target` = a sensitive column).\n")
   }
   invisible(x)
 }

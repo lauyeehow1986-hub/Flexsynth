@@ -28,6 +28,14 @@
   indicator columns are stripped from the returned data. Applies to single-table
   [synth()]; linked children and Track B are unchanged for now.
 
+* **Attribute-disclosure measure (TCAP).** `disclosure_risk(..., target = )`
+  now reports the Target Correct Attribution Probability (Taub, Elliot et al.):
+  how well an attacker who knows a record's quasi-identifier keys can read a
+  sensitive `target` off the synthetic data, against a marginal-only baseline
+  (`lift` = the excess). This is the governance-facing complement to the existing
+  identity and membership measures. For a linked input it is assessed on the
+  table that holds the target.
+
 ## Bug fixes
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The

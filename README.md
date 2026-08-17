@@ -53,7 +53,8 @@ It ships **two engines behind one interface**:
   over-optimistic.
 - **Diagnostics.** `diagnose()` (marginal fit, correlation-matrix difference,
   propensity pMSE) and `disclosure_risk()` (replicated uniques,
-  distance-to-closest-record, membership-inference AUC).
+  distance-to-closest-record, membership-inference AUC, and TCAP
+  attribute-disclosure via `target =`).
 - **Performance.** Optional `data.table` fast-path and parallel replicates
   (`synth_control(parallel = TRUE)`) with reproducible L'Ecuyer streams.
 

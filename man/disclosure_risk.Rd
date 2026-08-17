@@ -8,6 +8,7 @@ disclosure_risk(
   real,
   syn,
   quasi = NULL,
+  target = NULL,
   holdout = NULL,
   max_records = 2000L,
   seed = NULL,
@@ -23,6 +24,11 @@ named list, or \code{\link[=synth_linked]{synth_linked()}} \code{synth_linked_re
 
 \item{quasi}{Character vector of quasi-identifier columns; defaults to all
 columns present in both frames.}
+
+\item{target}{Optional single sensitive column for the attribute-disclosure
+(TCAP) measure; the quasi-identifiers minus \code{target} are used as the keys.
+\code{NULL} (default) skips it. For a linked (list) input it is assessed only on
+the table that contains it.}
 
 \item{holdout}{Optional \code{data.frame} of real records \emph{excluded} from
 synthesis, enabling the membership-inference check.}
@@ -59,6 +65,13 @@ synthesis is supplied, an attacker who guesses "member" for records close
 to the synthetic data is simulated. The reported AUC (0.5 = no advantage)
 and advantage (\code{2 * AUC - 1}) measure how well training membership can be
 inferred.
+\item \strong{Attribute disclosure (TCAP)} — if a sensitive \code{target} column is
+named, the Target Correct Attribution Probability (Taub, Elliot et al.):
+an attacker who knows a real record's quasi-identifier keys reads the
+conditional distribution of the target off the synthetic records that share
+those keys. \code{tcap} is the mean synthetic probability of the true target
+over matched records, \code{baseline} the marginal-only attacker, and \code{lift}
+the excess the key-conditioning buys. Meant for categorical keys / target.
 }
 
 Quasi-identifiers should be the genuinely identifying columns; exclude
