@@ -75,9 +75,11 @@ engine; Track B is the opt-in differentially private engine.
       lists of tables.
 - [x] Three vignettes: getting started · nested / longitudinal · multi-table
       linked cardiac (built pandoc-free with `litedown`).
-- Future: attribute-disclosure (correct-attribution probability) measures;
-      diagnostics that model the nested dependence explicitly rather than
-      pooling rows.
+- [x] Attribute disclosure through TCAP, including matched-record coverage and
+      a like-for-like covered-record marginal baseline.
+- Future: diagnostics that model nested dependence explicitly rather than
+      pooling rows; cluster-bootstrap uncertainty; entity-level attacks that
+      combine information across linked tables.
 
 ## Phase 6 — performance & extensibility  *(done)*
 - [x] `data.table` fast-path behind the same API: `rbindlist`-based row-binding

@@ -116,3 +116,34 @@ test_that("pool result prints", {
   res <- synth(d, ~ id, m = 3, seed = 5)
   expect_output(print(synth_glm(res, y ~ x)), "flexsynth_pool|estimate|Beta")
 })
+
+test_that("custom variances align to estimates by term name", {
+  ev <- extract_est_var(list(
+    estimate = c(a = 1, b = 2),
+    variance = c(b = 0.2, a = 0.1)
+  ))
+  expect_equal(ev$var, c(a = 0.1, b = 0.2))
+})
+
+test_that("custom analysis rejects invalid variance contracts", {
+  expect_error(
+    extract_est_var(list(estimate = c(a = 1), variance = c(a = -1))),
+    "non-negative"
+  )
+  expect_error(
+    extract_est_var(list(estimate = c(a = 1, b = 2), variance = c(0.1, 0.2))),
+    "names"
+  )
+})
+
+test_that("compare_estimates rejects analyses with no common terms", {
+  real <- data.frame(x = 1:5)
+  syn <- data.frame(x = 1:5)
+  n <- 0L
+  analysis <- function(d) {
+    n <<- n + 1L
+    term <- if (n == 1L) "real_term" else "syn_term"
+    list(estimate = setNames(1, term), variance = setNames(1, term))
+  }
+  expect_error(compare_estimates(real, syn, analysis), "common terms")
+})

@@ -48,3 +48,23 @@ test_that("target must be present and leave at least one key", {
                                target = "nope"), "target")
   expect_error(disclosure_risk(d, d, quasi = "dx", target = "dx"), "key")
 })
+
+test_that("TCAP lift compares covered records with a covered-record baseline", {
+  real <- data.frame(
+    key = c("matched", "matched", "unmatched", "unmatched"),
+    target = c("yes", "yes", "no", "no"),
+    stringsAsFactors = FALSE
+  )
+  syn <- data.frame(
+    key = c("matched", "matched"),
+    target = c("yes", "yes"),
+    stringsAsFactors = FALSE
+  )
+  a <- disclosure_risk(real, syn, quasi = c("key", "target"),
+                       target = "target")$attribute
+  expect_equal(a$coverage, 0.5)
+  expect_equal(a$tcap, 1)
+  expect_equal(a$baseline, 1)
+  expect_equal(a$lift, 0)
+  expect_equal(a$baseline_unconditional, 0.5)
+})

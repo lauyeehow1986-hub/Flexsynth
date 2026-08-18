@@ -39,8 +39,10 @@ A \code{flexsynth_pool} object; \verb{$estimates} is a data frame with \code{ter
 Fit an analysis on each of the \code{m} synthetic datasets in a \code{\link[=synth]{synth()}} result
 and combine the results into one estimate whose standard error reflects the
 extra variability that synthesis introduces. A naive analysis of a single
-synthetic dataset generally reports standard errors that are too small; this
-is the correct way to obtain confidence intervals and tests.
+synthetic dataset generally reports standard errors that are too small. These
+functions implement published fully-synthetic combining rules; their
+large-sample calibration still depends on the estimand, synthesis model,
+sample size, and analysis assumptions.
 }
 \details{
 \code{analysis} is run once per synthetic dataset and must return either a fitted

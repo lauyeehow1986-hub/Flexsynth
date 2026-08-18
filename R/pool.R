@@ -83,12 +83,30 @@ combine_estimates <- function(ests, vars, n, k, proper, rule,
 extract_est_var <- function(fit) {
   if (is.list(fit) && all(c("estimate", "variance") %in% names(fit))) {
     e <- fit$estimate; v <- fit$variance
+    if (!is.numeric(e) || !is.numeric(v))
+      stop("analysis: `estimate` and `variance` must be numeric.", call. = FALSE)
     if (length(e) != length(v))
       stop("analysis: `estimate` and `variance` must have equal length.",
            call. = FALSE)
-    nm <- names(e) %||% paste0("term", seq_along(e))
-    return(list(est = stats::setNames(as.numeric(e), nm),
-                var = stats::setNames(as.numeric(v), nm)))
+    en <- names(e); vn <- names(v)
+    if (xor(is.null(en), is.null(vn)))
+      stop("analysis: `estimate` and `variance` must either both have term names or neither.",
+           call. = FALSE)
+    if (is.null(en)) {
+      en <- paste0("term", seq_along(e))
+    } else {
+      if (anyDuplicated(en) || anyDuplicated(vn) || !setequal(en, vn))
+        stop("analysis: `estimate` and `variance` must have the same unique term names.",
+             call. = FALSE)
+      v <- v[en]
+    }
+    if (any(!is.finite(e)))
+      stop("analysis: `estimate` values must be finite.", call. = FALSE)
+    if (any(!is.finite(v)) || any(v < 0))
+      stop("analysis: `variance` values must be finite and non-negative.",
+           call. = FALSE)
+    return(list(est = stats::setNames(as.numeric(e), en),
+                var = stats::setNames(as.numeric(v), en)))
   }
   e <- tryCatch(stats::coef(fit), error = function(...) NULL)
   V <- tryCatch(stats::vcov(fit), error = function(...) NULL)
@@ -97,7 +115,11 @@ extract_est_var <- function(fit) {
                 "(e.g. lm/glm), or a list(estimate = , variance = )."),
          call. = FALSE)
   keep <- !is.na(e)                          # drop aliased (NA) coefficients
-  list(est = e[keep], var = diag(V)[names(e)[keep]])
+  est <- e[keep]
+  vr <- diag(V)[names(e)[keep]]
+  if (!length(est) || any(!is.finite(est)) || any(!is.finite(vr)) || any(vr < 0))
+    stop("analysis returned no finite estimates or invalid variances.", call. = FALSE)
+  list(est = est, var = vr)
 }
 
 #' Valid inference from synthetic data (pooled analysis)
@@ -105,8 +127,10 @@ extract_est_var <- function(fit) {
 #' Fit an analysis on each of the `m` synthetic datasets in a [synth()] result
 #' and combine the results into one estimate whose standard error reflects the
 #' extra variability that synthesis introduces. A naive analysis of a single
-#' synthetic dataset generally reports standard errors that are too small; this
-#' is the correct way to obtain confidence intervals and tests.
+#' synthetic dataset generally reports standard errors that are too small. These
+#' functions implement published fully-synthetic combining rules; their
+#' large-sample calibration still depends on the estimand, synthesis model,
+#' sample size, and analysis assumptions.
 #'
 #' `analysis` is run once per synthetic dataset and must return either a fitted
 #' model supporting `coef()` and `vcov()` (such as [lm()] or [glm()]) or a list
@@ -268,6 +292,9 @@ compare_estimates <- function(real, syn, analysis,
   if (!is.data.frame(real)) stop("`real` must be a data.frame.", call. = FALSE)
   if (!is.function(analysis)) stop("`analysis` must be a function.", call. = FALSE)
   rule <- match.arg(rule)
+  if (!is.numeric(conf.level) || length(conf.level) != 1L || is.na(conf.level) ||
+      conf.level <= 0 || conf.level >= 1)
+    stop("`conf.level` must be a single number in (0, 1).", call. = FALSE)
   zc   <- stats::qnorm(1 - (1 - conf.level) / 2)
 
   ## Real analysis: point estimate and normal interval from its own vcov.
@@ -290,6 +317,8 @@ compare_estimates <- function(real, syn, analysis,
   }
 
   keep  <- intersect(terms, names(est_s))
+  if (!length(keep))
+    stop("real and synthetic analyses returned no common terms.", call. = FALSE)
   lo_o  <- est_o[keep] - zc * se_o[keep]; uo_o <- est_o[keep] + zc * se_o[keep]
   lo_s  <- est_s[keep] - zc * se_s[keep]; uo_s <- est_s[keep] + zc * se_s[keep]
   inter <- pmin(uo_o, uo_s) - pmax(lo_o, lo_s)

@@ -8,9 +8,9 @@
 
 **Flexible synthetic data for nested, longitudinal and linked multi-table data.**
 
-`flexsynth` generates high-quality synthetic data from real datasets of *any*
-structure, working **natively in long format** — no pivoting nested or
-longitudinal data to wide. It has first-class support for **multi-table linked**
+`flexsynth` generates utility-oriented synthetic data for supported flat,
+nested, longitudinal, and tree-linked structures, working **natively in long
+format** — no pivoting nested or longitudinal data to wide. It has first-class support for **multi-table linked**
 data (e.g. patients → admissions → procedures / labs / meds) with referential
 integrity and cross-table relationships preserved.
 
@@ -22,8 +22,10 @@ It ships **two engines behind one interface**:
   formal privacy guarantee; ships honest empirical disclosure-risk diagnostics
   so residual risk can be judged.
 - **Track B — differentially private (opt-in).** `synth(..., privacy =
-  dp_control(...))` gives a formal, **person-level** (ε, δ) guarantee for
-  governed release, with exact budget accounting.
+  dp_control(...))` implements a **person-level** (ε, δ) mechanism and emits its
+  budget-accounting record. A governed release still requires independent review
+  of the privacy unit, public-domain assumptions, contribution caps, and selected
+  mechanism.
 
 > Synthetic data is **not** anonymisation, and Track A output must never be
 > described as differentially private.
@@ -47,11 +49,12 @@ It ships **two engines behind one interface**:
 - **Constraints / temporal logic.** `rule()` enforces row-wise or per-unit
   constraints (e.g. `dbp <= sbp`, monotone length-of-stay) by unit-grain
   rejection sampling.
-- **Valid inference.** `pool_synth()` / `synth_glm()` combine an analysis across
-  the `m` synthetic datasets with fully-synthetic variance rules (synthpop /
-  Reiter), so confidence intervals and tests are correct rather than
-  over-optimistic; `compare_estimates()` scores real-vs-synthetic analyses by
-  confidence-interval overlap.
+- **Pooled inference.** `pool_synth()` / `synth_glm()` implement the published
+  fully-synthetic variance rules (synthpop / Reiter) across `m` synthetic
+  datasets. They use large-sample normal intervals; calibration still depends on
+  the estimand, synthesis model, sample size, and analysis assumptions.
+  `compare_estimates()` scores real-vs-synthetic analyses by confidence-interval
+  overlap.
 - **Diagnostics.** `diagnose()` (marginal fit, correlation-matrix difference,
   categorical association via Cramer's V, propensity pMSE) and
   `disclosure_risk()` (replicated uniques, distance-to-closest-record,
@@ -122,8 +125,8 @@ disclosure_risk(real = df, syn = syn)
 ### Valid inference from synthetic data
 
 ```r
-# Analyse all m synthetic sets and pool, so the standard errors account for
-# synthesis (a single set analysed naively under-states them).
+# Analyse all m synthetic sets with a published fully-synthetic pooling rule.
+# A single set analysed naively generally under-states synthesis uncertainty.
 res <- synth(df, structure = ~ id / visit, m = 10, seed = 1)
 synth_glm(res, sbp ~ age)                 # pooled linear model
 # any estimator works via pool_synth(res, function(d) <fit returning coef/vcov>)

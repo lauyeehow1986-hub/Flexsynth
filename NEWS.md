@@ -73,6 +73,18 @@
 
 ## Bug fixes
 
+* Disclosure diagnostics now propagate per-table holdouts through linked input,
+  use collision-safe quasi-identifier keys, and compare TCAP against the
+  marginal baseline on the same covered records. The unconditional marginal
+  baseline remains available as `baseline_unconditional`.
+
+* Diagnostic pMSE calibration now uses the fitted complete-case sample size and
+  effective logistic-model rank; the reported correlation Frobenius distance
+  now covers both triangles of the symmetric matrix.
+
+* Custom pooled-analysis variance vectors are aligned by term name and invalid,
+  negative, non-finite, or mismatched analysis results now fail explicitly.
+
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The
   linear-model fit dropped `NA` rows via `model.matrix()` while keeping the
   full-length response, causing `"'qr' and 'y' must have the same number of
