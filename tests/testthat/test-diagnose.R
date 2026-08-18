@@ -60,3 +60,23 @@ test_that("plot runs on a null device", {
   on.exit(grDevices::dev.off(), add = TRUE)
   expect_invisible(plot(d))
 })
+
+test_that("pMSE calibration uses fitted rows and effective model rank", {
+  real <- data.frame(x = c(1, 2, NA, 4), x2 = c(2, 4, NA, 8))
+  p <- flexsynth:::pmse_diagnostics(real, real, c("x", "x2"))
+  expect_equal(p$n_used, 6L)
+  expect_equal(p$npar, 2L)
+  expect_equal(p$expected, 1 / 48)
+})
+
+test_that("pMSE rejects unknown propensity models", {
+  df <- make_diag_df()
+  expect_error(diagnose(df, df, propensity = "unknown"), "propensity")
+})
+
+test_that("correlation Frobenius distance covers both matrix triangles", {
+  real <- data.frame(x = 1:5, y = 1:5)
+  syn  <- data.frame(x = 1:5, y = 5:1)
+  d <- diagnose(real, syn, vars = c("x", "y"))
+  expect_equal(d$correlation$frobenius, sqrt(8))
+})

@@ -6,9 +6,8 @@
 \alias{flexsynth-package}
 \title{flexsynth: flexible synthetic data for nested, longitudinal and linked data}
 \description{
-Generate high-quality synthetic data from real datasets of any structure,
-natively in long format, with first-class support for nested / longitudinal
-and multi-table \emph{linked} data.
+Generate utility-oriented synthetic data for supported flat, nested,
+longitudinal and tree-linked structures, natively in long format.
 }
 \section{Two privacy tracks}{
 

@@ -80,7 +80,9 @@ correlation_diagnostics <- function(real, syn, vars) {
     vars          = num,
     real          = cr,
     syn           = cs,
-    frobenius     = sqrt(sum(diff^2)),
+    # The matrix is symmetric and `diff` contains one triangle.  Count both
+    # off-diagonal entries to return the actual full-matrix Frobenius norm.
+    frobenius     = sqrt(2 * sum(diff^2)),
     mean_abs_diff = mean(abs(diff)),
     max_abs_diff  = if (length(diff)) max(abs(diff)) else NA_real_
   )
@@ -133,6 +135,9 @@ association_diagnostics <- function(real, syn, vars) {
 # are indistinguishable the fitted propensities all sit at c = n_syn / N and the
 # pMSE is near its null expectation (ratio ~ 1).
 pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
+  if (!is.character(propensity) || length(propensity) != 1L ||
+      is.na(propensity) || !propensity %in% c("logistic", "cart"))
+    stop("`propensity` must be either \"logistic\" or \"cart\".", call. = FALSE)
   keep <- vars[vapply(vars, function(v)
     length(unique(c(as.character(real[[v]]), as.character(syn[[v]])))) > 1L,
     logical(1))]
@@ -144,13 +149,15 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
   cc <- nrow(syn) / N
 
   fit_ok <- FALSE
-  if (identical(propensity, "cart") && requireNamespace("rpart", quietly = TRUE)) {
+  if (identical(propensity, "cart")) {
+    if (!requireNamespace("rpart", quietly = TRUE))
+      stop("`propensity = \"cart\"` needs the 'rpart' package.", call. = FALSE)
     m <- tryCatch(
       rpart::rpart(z ~ ., data = cbind(z = z, stacked), method = "class"),
       error = function(e) NULL)
     if (!is.null(m)) {
       ph <- stats::predict(m)[, 2L]
-      npar <- NA_integer_; fit_ok <- TRUE
+      npar <- NA_integer_; n_used <- length(ph); fit_ok <- TRUE
     }
   }
   if (!fit_ok) {                            # default: main-effects logistic
@@ -159,15 +166,17 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
                                   family = stats::binomial())),
       error = function(e) NULL)
     if (is.null(m)) return(NULL)
-    ph   <- stats::fitted(m)
-    npar <- length(stats::coef(m))
+    ph     <- stats::fitted(m)
+    n_used <- stats::nobs(m)
+    npar   <- m$rank
+    cc     <- mean(stats::model.response(stats::model.frame(m)))
     propensity <- "logistic"
   }
 
   pmse <- mean((ph - cc)^2)
   # Snoke et al. (2018) null expectation for a logistic model with npar terms.
   expected <- if (!is.na(npar))
-    (npar - 1) * (1 - cc)^2 * cc / N else NA_real_
+    (npar - 1) * (1 - cc)^2 * cc / n_used else NA_real_
   list(
     method     = propensity,
     pmse       = pmse,
@@ -175,6 +184,7 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
     ratio      = if (!is.na(expected) && expected > 0) pmse / expected else NA_real_,
     c          = cc,
     npar       = npar,
+    n_used     = n_used,
     n_vars     = length(keep)
   )
 }
@@ -198,10 +208,14 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
 #'   \item **Association** — the mean and maximum absolute difference between the
 #'     real and synthetic categorical association (Cramer's V) matrices, so
 #'     dependence between factor variables is checked, not just numeric ones.
-#'   \item **Propensity (pMSE)** — a general utility score: a model is fitted to
+#'   \item **Propensity (pMSE)** — a descriptive utility score: a model is fitted to
 #'     tell real from synthetic records; when they are indistinguishable the
 #'     propensity mean squared error sits near its null expectation, so the
-#'     `ratio` is near 1 (larger means more distinguishable).
+#'     logistic model's `ratio` is near 1 (larger means more distinguishable).
+#'     This is an in-sample, row-level diagnostic: the default logistic model has
+#'     main effects only, and repeated rows in longitudinal data are not treated
+#'     as independent inferential evidence. CART does not have an analytic null
+#'     ratio. Treat all results as descriptive rather than hypothesis tests.
 #' }
 #'
 #' If `real` and `syn` are named lists (or `syn` is a `synth_linked_result`),
@@ -229,6 +243,9 @@ pmse_diagnostics <- function(real, syn, vars, propensity = "logistic") {
 #' res <- synth(df, ~ id, seed = 1)
 #' diagnose(df, res)
 diagnose <- function(real, syn, vars = NULL, propensity = "logistic", ...) {
+  if (!is.character(propensity) || length(propensity) != 1L ||
+      is.na(propensity) || !propensity %in% c("logistic", "cart"))
+    stop("`propensity` must be either \"logistic\" or \"cart\".", call. = FALSE)
   syn <- as_diag_frame(syn)
 
   if (is.list(real) && !is.data.frame(real) &&
@@ -306,7 +323,8 @@ print.flexsynth_diagnostics <- function(x, ...) {
 
   if (!is.null(x$pmse)) {
     p <- x$pmse
-    cat(sprintf("\nPropensity utility (pMSE, %s):\n", p$method))
+    cat(sprintf("\nPropensity utility (pMSE, %s; descriptive, in-sample):\n",
+                p$method))
     cat(sprintf("  pMSE: %.5f", p$pmse))
     if (!is.na(p$ratio))
       cat(sprintf("   expected: %.5f   ratio: %.2f (1 = indistinguishable)",

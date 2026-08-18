@@ -54,6 +54,15 @@ test_that("membership inference is skipped without a holdout", {
   expect_output(print(r), "not run")
 })
 
+test_that("disclosure summaries do not label a point estimate as safe", {
+  df <- make_risk_df()
+  r <- disclosure_risk(df, df, quasi = c("age", "sex"), seed = 1)
+  expect_output(print(r), "not a safety guarantee")
+  expect_output(print(r), "inspect lower-tail")
+  expect_false(grepl("low identity risk", paste(capture.output(print(r)),
+                                                  collapse = " ")))
+})
+
 test_that("unknown quasi-identifier columns error", {
   df <- make_risk_df()
   expect_error(disclosure_risk(df, df, quasi = c("age", "nope")),
@@ -66,4 +75,32 @@ test_that("disclosure_risk dispatches over a list of tables", {
                         quasi = c("age", "sex"), seed = 1)
   expect_s3_class(rl, "flexsynth_disclosure_list")
   expect_named(rl, c("a", "b"))
+})
+
+test_that("linked disclosure forwards each table's membership holdout", {
+  df <- make_risk_df(n = 80)
+  hold <- data.frame(
+    id = 1:40,
+    age = rep(200, 40),
+    sex = rep(c("F", "M"), 20),
+    stringsAsFactors = FALSE
+  )
+  rl <- disclosure_risk(
+    list(a = df, b = df), list(a = df, b = df),
+    quasi = c("age", "sex"), holdout = list(a = hold, b = hold), seed = 1
+  )
+  expect_false(is.null(rl$a$membership))
+  expect_false(is.null(rl$b$membership))
+})
+
+test_that("row keys cannot collide through embedded separators", {
+  real <- data.frame(
+    q1 = c("a\rb", "a"),
+    q2 = c("c", "b\rc"),
+    stringsAsFactors = FALSE
+  )
+  syn <- real[1, , drop = FALSE]
+  r <- disclosure_risk(real, syn, quasi = c("q1", "q2"), seed = 1)
+  expect_equal(r$replicated_uniques$n_real_unique, 2L)
+  expect_equal(r$replicated_uniques$n_replicated, 1L)
 })

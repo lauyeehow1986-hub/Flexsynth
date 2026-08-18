@@ -9,9 +9,22 @@ as_risk_frame <- function(x) {
   x
 }
 
-# Row keys: the quasi-identifier columns pasted into one string per row.
+# Row keys: encode every field with an explicit byte length.  A plain separator
+# is not sufficient because user values may contain that separator (and a
+# literal "NA" must remain distinct from a missing value).
 row_keys <- function(df, quasi) {
-  do.call(paste, c(lapply(quasi, function(v) as.character(df[[v]])), sep = "\r"))
+  parts <- lapply(quasi, function(v) {
+    raw <- df[[v]]
+    val <- enc2utf8(as.character(raw))
+    missing <- is.na(raw)
+    encoded <- rep.int("N;", length(val))
+    present <- !missing
+    encoded[present] <- paste0(
+      "V", nchar(val[present], type = "bytes"), ":", val[present], ";"
+    )
+    encoded
+  })
+  do.call(paste0, parts)
 }
 
 # Sample down to at most `n` rows (reproducible via the caller's seed).
@@ -45,16 +58,19 @@ tcap_risk <- function(real, syn, keys, target, max_records) {
   base <- as.numeric(marg[rt]); base[is.na(base)] <- 0
 
   tcap <- if (any(covered)) mean(cap[covered]) else NA_real_
+  baseline_covered <- if (any(covered)) mean(base[covered]) else NA_real_
   list(target = target, keys = keys,
-       tcap = tcap, baseline = mean(base),
-       lift = tcap - mean(base),
-       coverage = mean(covered), n_scored = length(rk))
+       tcap = tcap, baseline = baseline_covered,
+       baseline_unconditional = mean(base),
+       lift = tcap - baseline_covered,
+       coverage = mean(covered), n_scored = length(rk),
+       n_covered = sum(covered))
 }
 
 #' Empirical disclosure-risk diagnostics for synthetic data
 #'
 #' Reports how much a synthetic dataset could leak about the real records it was
-#' trained on. Three complementary measures are computed:
+#' trained on. Four complementary measures are computed:
 #'
 #' \itemize{
 #'   \item **Replicated uniques** — records that are unique in the real data on
@@ -76,8 +92,10 @@ tcap_risk <- function(real, syn, keys, target, max_records) {
 #'     an attacker who knows a real record's quasi-identifier keys reads the
 #'     conditional distribution of the target off the synthetic records that share
 #'     those keys. `tcap` is the mean synthetic probability of the true target
-#'     over matched records, `baseline` the marginal-only attacker, and `lift`
-#'     the excess the key-conditioning buys. Meant for categorical keys / target.
+#'     over matched records, `baseline` the marginal-only attacker evaluated on
+#'     those same covered records, and `lift` the excess the key-conditioning
+#'     buys. `baseline_unconditional` is also returned for context. Meant for
+#'     categorical keys / target.
 #' }
 #'
 #' Quasi-identifiers should be the genuinely identifying columns; exclude
@@ -96,7 +114,8 @@ tcap_risk <- function(real, syn, keys, target, max_records) {
 #'   `NULL` (default) skips it. For a linked (list) input it is assessed only on
 #'   the table that contains it.
 #' @param holdout Optional `data.frame` of real records *excluded* from
-#'   synthesis, enabling the membership-inference check.
+#'   synthesis, enabling the membership-inference check. For linked input, a
+#'   named list containing a holdout `data.frame` for every evaluated table.
 #' @param max_records Cap on the number of rows used for the distance
 #'   computations (each of real / synthetic is sampled down to this); keeps the
 #'   pairwise distances tractable. Default 2000.
@@ -124,10 +143,20 @@ disclosure_risk <- function(real, syn, quasi = NULL, target = NULL,
       is.list(syn) && !is.data.frame(syn)) {
     tbls <- intersect(names(real), names(syn))
     if (!length(tbls)) stop("`real` and `syn` share no table names.", call. = FALSE)
+    if (!is.null(holdout)) {
+      if (!is.list(holdout) || is.data.frame(holdout))
+        stop("for linked data, `holdout` must be a named list of data.frames.",
+             call. = FALSE)
+      missing_holdout <- setdiff(tbls, names(holdout))
+      if (length(missing_holdout))
+        stop(sprintf("`holdout` is missing table(s): %s",
+                     paste(missing_holdout, collapse = ", ")), call. = FALSE)
+    }
     out <- stats::setNames(lapply(tbls, function(t) {
       # A target applies only to the table that contains it.
       tgt <- if (!is.null(target) && target %in% names(real[[t]])) target else NULL
       disclosure_risk(real[[t]], syn[[t]], quasi = quasi, target = tgt,
+                      holdout = if (is.null(holdout)) NULL else holdout[[t]],
                       max_records = max_records, seed = seed)
     }), tbls)
     return(structure(out, class = "flexsynth_disclosure_list"))
@@ -240,10 +269,12 @@ print.flexsynth_disclosure <- function(x, ...) {
               d$median_syn, d$q05_syn, 100 * d$prop_syn_zero))
   cat(sprintf("  real->real : median %.4f   (baseline)\n", d$median_real))
   verdict <- if (d$median_syn + 1e-9 >= d$median_real)
-    "syn not closer than real neighbours -> low identity risk"
+    "median syn distance is not smaller than the real-neighbour baseline"
   else
-    "syn closer to real than real's own neighbours -> inspect"
+    "median syn distance is smaller than the real-neighbour baseline"
   cat("  ", verdict, "\n", sep = "")
+  cat("  descriptive only: inspect lower-tail distances and exact copies; ",
+      "this is not a safety guarantee\n", sep = "")
 
   if (!is.null(x$membership)) {
     m <- x$membership
@@ -261,8 +292,8 @@ print.flexsynth_disclosure <- function(x, ...) {
                 a$tcap, a$baseline, a$lift, 100 * a$coverage,
                 paste(a$keys, collapse = ", ")))
     cat("  ", if (isTRUE(a$lift > 0.1))
-      "key-conditioning attributes the target well above the margin -> inspect"
-      else "attribution barely above the marginal baseline -> low attribute risk",
+      "key-conditioning attributes the target well above the covered-record margin -> inspect"
+      else "little lift over the covered-record marginal baseline in this sample",
       "\n", sep = "")
   } else {
     cat("\nAttribute disclosure: not run (supply `target` = a sensitive column).\n")

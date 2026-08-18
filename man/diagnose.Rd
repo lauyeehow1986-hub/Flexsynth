@@ -41,10 +41,14 @@ the real and synthetic numeric correlation matrices.
 \item \strong{Association} — the mean and maximum absolute difference between the
 real and synthetic categorical association (Cramer's V) matrices, so
 dependence between factor variables is checked, not just numeric ones.
-\item \strong{Propensity (pMSE)} — a general utility score: a model is fitted to
+\item \strong{Propensity (pMSE)} — a descriptive utility score: a model is fitted to
 tell real from synthetic records; when they are indistinguishable the
 propensity mean squared error sits near its null expectation, so the
-\code{ratio} is near 1 (larger means more distinguishable).
+logistic model's \code{ratio} is near 1 (larger means more distinguishable).
+This is an in-sample, row-level diagnostic: the default logistic model has main
+effects only, and repeated rows in longitudinal data are not treated as
+independent inferential evidence. CART does not have an analytic null ratio.
+Treat all results as descriptive rather than hypothesis tests.
 }
 
 If \code{real} and \code{syn} are named lists (or \code{syn} is a \code{synth_linked_result}),

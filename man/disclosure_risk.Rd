@@ -31,7 +31,8 @@ columns present in both frames.}
 the table that contains it.}
 
 \item{holdout}{Optional \code{data.frame} of real records \emph{excluded} from
-synthesis, enabling the membership-inference check.}
+synthesis, enabling the membership-inference check. For linked input, a named
+list containing a holdout \code{data.frame} for every evaluated table.}
 
 \item{max_records}{Cap on the number of rows used for the distance
 computations (each of real / synthetic is sampled down to this); keeps the
@@ -47,7 +48,7 @@ a \code{print()} method.
 }
 \description{
 Reports how much a synthetic dataset could leak about the real records it was
-trained on. Three complementary measures are computed:
+trained on. Four complementary measures are computed:
 }
 \details{
 \itemize{
@@ -70,8 +71,10 @@ named, the Target Correct Attribution Probability (Taub, Elliot et al.):
 an attacker who knows a real record's quasi-identifier keys reads the
 conditional distribution of the target off the synthetic records that share
 those keys. \code{tcap} is the mean synthetic probability of the true target
-over matched records, \code{baseline} the marginal-only attacker, and \code{lift}
-the excess the key-conditioning buys. Meant for categorical keys / target.
+over matched records, \code{baseline} the marginal-only attacker evaluated on
+those same covered records, and \code{lift} the excess the key-conditioning buys.
+\code{baseline_unconditional} is also returned for context. Meant for categorical
+keys / target.
 }
 
 Quasi-identifiers should be the genuinely identifying columns; exclude
