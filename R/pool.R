@@ -1,4 +1,4 @@
-# Valid inference from synthetic data: combine an analysis fitted on each of the
+# Pooled inference from synthetic data: combine an analysis fitted on each of the
 # m synthetic datasets into one estimate with a standard error that reflects the
 # extra variability synthesis introduces. Without this, naive standard errors
 # from a single synthetic dataset are (usually) too small.
@@ -122,15 +122,15 @@ extract_est_var <- function(fit) {
   list(est = est, var = vr)
 }
 
-#' Valid inference from synthetic data (pooled analysis)
+#' Pooled inference from synthetic data
 #'
 #' Fit an analysis on each of the `m` synthetic datasets in a [synth()] result
 #' and combine the results into one estimate whose standard error reflects the
-#' extra variability that synthesis introduces. A naive analysis of a single
-#' synthetic dataset generally reports standard errors that are too small. These
-#' functions implement published fully-synthetic combining rules; their
-#' large-sample calibration still depends on the estimand, synthesis model,
-#' sample size, and analysis assumptions.
+#' extra variability that synthesis introduces. An analysis of a single
+#' synthetic dataset does not estimate between-synthesis variation, so its usual
+#' standard errors can be miscalibrated. These functions implement published
+#' fully-synthetic combining rules; their large-sample calibration still depends
+#' on the estimand, synthesis model, sample size, and analysis assumptions.
 #'
 #' `analysis` is run once per synthetic dataset and must return either a fitted
 #' model supporting `coef()` and `vcov()` (such as [lm()] or [glm()]) or a list
@@ -177,7 +177,7 @@ pool_synth <- function(object, analysis,
   if (!inherits(object, "synth_result"))
     stop("`object` must be a synth_result from synth().", call. = FALSE)
   if (!is.null(object$privacy))
-    stop(paste0("pool_synth() is for Track A results. Valid inference from a ",
+    stop(paste0("pool_synth() is for Track A results. Inference from a ",
                 "differentially private (Track B) release must account for the ",
                 "DP noise and is out of scope."), call. = FALSE)
   if (!is.function(analysis))

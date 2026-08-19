@@ -18,7 +18,9 @@
 # service. Results arrive by email, usually within ~30-60 minutes.
 # ---------------------------------------------------------------------------
 
-pkg <- "C:/Users/lauye/Downloads/flexsynth"   # adjust if the checkout moved
+pkg <- normalizePath(".", winslash = "/", mustWork = TRUE)
+if (!file.exists(file.path(pkg, "DESCRIPTION")))
+  stop("Run this script from the flexsynth package root.")
 
 if (!requireNamespace("devtools", quietly = TRUE))
   stop("Install 'devtools' first: install.packages('devtools')")

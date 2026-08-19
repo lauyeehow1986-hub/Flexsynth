@@ -18,13 +18,14 @@ library(flexsynth)
 
 ## What flexsynth does
 
-`flexsynth` generates synthetic data that reproduces the statistical structure
-of a real dataset without copying its records. The default **Track A** engine is
-a high-utility sequential synthesiser; it carries **no** formal privacy
-guarantee, so the package ships honest utility and disclosure-risk diagnostics
-so you can judge the trade-off yourself. For a formal guarantee, the opt-in
-differentially private **Track B** is described in
-`vignette("differential-privacy")`.
+`flexsynth` generates new records intended to reproduce selected statistical
+structure from a real dataset. The default **Track A** engine is a
+utility-oriented sequential synthesiser. It may reproduce source values or even
+records, carries **no** formal privacy guarantee, and must not be treated as
+anonymisation. The package's empirical utility and disclosure-risk diagnostics
+inform a release review; they do not prove that a release is safe. The opt-in
+differentially private **Track B** and the conditions required for its formal
+guarantee are described in `vignette("differential-privacy")`.
 
 ## A first synthesis
 
@@ -58,14 +59,18 @@ from the matching leaf of a regression / classification tree).
 
 ## Is the synthetic data any good? — `diagnose()`
 
-`diagnose()` compares real and synthetic data on three views: per-variable
-marginals (a Kolmogorov-Smirnov statistic for numeric variables, total-variation
-distance for categorical ones), the correlation structure, and a general
-**propensity (pMSE)** score — a model tries to tell real from synthetic records,
-and a `ratio` near 1 means it cannot.
+`diagnose()` compares real and synthetic data on four descriptive views:
+per-variable marginals (a Kolmogorov-Smirnov statistic for numeric variables and
+total-variation distance for categorical ones), numeric correlations,
+categorical associations (Cramer's V), and a **propensity (pMSE)** score. For the
+default main-effects logistic model, a `ratio` near 1 is its null benchmark;
+larger values indicate greater row-level distinguishability. The score is fitted
+and evaluated in-sample, and repeated rows in longitudinal data are not
+independent evidence, so do not interpret the ratio as a hypothesis test.
 
 ```{r diagnose}
-d <- diagnose(real, res)
+analysis_vars <- c("age", "sex", "smoker", "sbp")
+d <- diagnose(real, res, vars = analysis_vars)
 d
 ```
 
@@ -77,12 +82,14 @@ plot(d)
 
 ## How risky is it? — `disclosure_risk()`
 
-Synthetic data is **not** anonymisation. `disclosure_risk()` reports how much the
-synthetic data could leak about the real records: replicated uniques (real
-records that are unique on the quasi-identifiers and reproduced exactly),
-distance to closest record, and — given a holdout — a membership-inference
-check. Pass the genuinely identifying columns as `quasi` (not surrogate keys
-like the regenerated `id`).
+Synthetic data is **not** anonymisation. `disclosure_risk()` provides four
+empirical checks: replicated uniques; distance to the closest real record (DCR);
+membership inference when a genuine, synthesis-excluded holdout is supplied;
+and Target Correct Attribution Probability (TCAP) when a categorical sensitive
+`target` is named. Pass genuinely identifying columns as `quasi`, excluding
+surrogate keys such as the regenerated `id`. These diagnostics flag potential
+identity, membership, and attribute-disclosure problems; no threshold certifies
+a release as safe.
 
 ```{r risk}
 disclosure_risk(real, res, quasi = c("age", "sex", "smoker", "sbp"), seed = 1)

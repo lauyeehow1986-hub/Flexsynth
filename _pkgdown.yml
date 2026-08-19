@@ -31,8 +31,8 @@ reference:
 
   - title: Inference
     desc: >
-      Valid inference from synthetic data: pool an analysis across the `m`
-      synthetic datasets with proper (fully-synthetic) variance combining.
+      Pooled inference from synthetic data using published fully-synthetic
+      combining rules; calibration depends on the synthesis and analysis models.
     contents:
       - pool_synth
       - synth_glm

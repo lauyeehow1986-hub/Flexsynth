@@ -1,12 +1,12 @@
 ---
-title: "Valid inference and attribute-disclosure control"
+title: "Pooled inference and attribute-disclosure diagnostics"
 output:
   litedown::html_format:
     meta:
       css: ["@default"]
 vignette: >
   %\VignetteEngine{litedown::vignette}
-  %\VignetteIndexEntry{Valid inference and attribute-disclosure control}
+  %\VignetteIndexEntry{Pooled inference and attribute-disclosure diagnostics}
   %\VignetteEncoding{UTF-8}
 ---
 
@@ -16,19 +16,19 @@ set.seed(1)
 library(flexsynth)
 ```
 
-## Why analysing one synthetic dataset is not enough
+## Why analyse multiple synthetic datasets
 
 `synth()` regenerates every column from a model fitted on the real data, using a
 freshly drawn skeleton — so its output is *fully synthetic* in the Reiter (2003)
-sense. That randomness is real: run the synthesiser twice and your regression
-coefficients move a little. An analyst who fits a model on a **single** synthetic
-dataset and reports its ordinary standard errors is ignoring that extra
-variability, and the standard errors come out too small — confidence intervals
-that are too narrow, p-values that are too keen.
+sense. Run the synthesiser twice and the analysis estimates can move. Analysing
+only one synthetic dataset does not quantify that between-synthesis variation;
+depending on the estimand, synthesis model, sample size, and analysis, its usual
+standard errors can therefore be misleading.
 
-The fix is the reason `synth()` can emit `m > 1` datasets. Fit the analysis on
-each, then combine the estimates with a rule that adds the between-synthesis
-variability back in. `flexsynth` does this for you.
+This is why `synth()` can emit `m > 1` datasets. Fit the analysis on each and
+combine the results using a published fully-synthetic rule. `flexsynth` provides
+two such rules; their large-sample calibration still relies on the assumptions
+of the synthesis and analysis models.
 
 ```{r data}
 n <- 800
@@ -44,8 +44,9 @@ res <- synth(real, structure = ~ id, m = 10, seed = 1)
 res
 ```
 
-We asked for `m = 10` synthetic datasets. For pooled inference, more is better;
-`m >= 5` is a sensible floor.
+We asked for `m = 10` synthetic datasets. Increasing `m` reduces Monte Carlo
+variation in the pooled result; `m >= 5` is a practical starting point, not a
+universal adequacy threshold.
 
 ## `synth_glm()` — the common case
 
@@ -64,9 +65,11 @@ trying to recover:
 summary(lm(sbp ~ age + sex, data = real))$coefficients[, 1:2]
 ```
 
-The pooled point estimates land on the real coefficients (the `age` slope near
-0.6, the male offset near 5), and the pooled standard errors are honest about the
-cost of synthesis rather than pretending a single draw was the truth.
+In this simulation, the pooled estimates should be close to the generating
+coefficients (an `age` slope of 0.6 and a male offset of 5). The reported
+standard errors apply the selected combining rule to the within- and
+between-synthesis quantities; they are not a guarantee of calibrated coverage
+for every dataset or model.
 
 By default the standard error targets the population the real data was drawn
 from. If instead you want the standard error an analyst of the *original* sample
@@ -88,11 +91,12 @@ pool_synth(res, function(d) {
 })
 ```
 
-Two combining rules are available via `rule =`: the default `"synthpop"`
-estimators of Raab, Nowok & Dibben (2016) — stable at small `m` and never
-negative — and the classic `"reiter"` fully-synthetic estimator, which is
-theoretically standard but needs `m >= 2` and can occasionally return a negative
-variance (reported as `NA`).
+Two combining rules are available via `rule =`: the default `"synthpop"` rule
+matching Raab, Nowok & Dibben (2016), whose implemented variance estimate is
+non-negative, and the `"reiter"` fully-synthetic rule from Reiter (2003), which
+needs `m >= 2` and can produce a negative variance estimate (reported as `NA`).
+Choose the rule to match the release and inferential target rather than by the
+size of its standard error.
 
 ## `compare_estimates()` — analysis-specific utility
 
@@ -108,8 +112,9 @@ standardised difference of the estimates.
 compare_estimates(real, res, function(d) lm(sbp ~ age + sex, data = d))
 ```
 
-A mean overlap near 1 with small standardised differences is what you hope to
-see: the synthetic data supports the same conclusions as the real data.
+Larger interval overlap and smaller standardised differences indicate better
+agreement for this chosen analysis. They are utility diagnostics, not evidence
+that every analysis will agree or that the synthetic data is safe to release.
 
 ## Attribute disclosure — TCAP
 
@@ -118,9 +123,13 @@ structure an analyst exploits is what an attacker exploits. `disclosure_risk()`
 gains a `target =` argument for exactly this: the **Target Correct Attribution
 Probability** (TCAP; Taub, Elliot et al.). An attacker who knows a real record's
 quasi-identifier keys looks up the synthetic records sharing those keys and reads
-off the conditional distribution of the sensitive `target`; TCAP is the mean
-synthetic probability of the true value, and is compared with a marginal-only
-attacker so the `lift` is the *excess* attribution the keys buy.
+off the conditional distribution of the sensitive `target`. TCAP averages the
+synthetic probability of the true value over real records whose keys occur in
+the synthetic data. The reported `baseline` evaluates a marginal-only attacker
+on those same covered records, so `lift` is the *excess* attribution the keys
+buy. Inspect `coverage` as well: TCAP can otherwise look favourable simply
+because difficult records have no synthetic key match. The
+`baseline_unconditional` value provides context across all scored real records.
 
 TCAP is meant for categorical keys and target, so we use a small categorical
 dataset where a sensitive status depends on the quasi-identifiers.
@@ -161,9 +170,11 @@ the keys add almost nothing beyond the margin.
 
 ## Where this fits
 
-Track A output must never be described as differentially private; the tools here
-help you decide whether its utility / disclosure balance is acceptable for a
-given release. For a formal privacy guarantee instead, see
-`vignette("differential-privacy")`. Note that pooled inference (`pool_synth()`,
-`synth_glm()`) is a Track A tool — valid inference from a differentially private
-release must additionally account for the DP noise and is out of scope here.
+Track A output must never be described as differentially private. The tools here
+provide evidence for a documented release review, but the release decision must
+also consider data sensitivity, plausible attackers, access controls, and
+independent governance review. For a formal privacy guarantee instead, see
+`vignette("differential-privacy")` and verify all of its stated domain and
+budget-accounting conditions. Pooled inference (`pool_synth()`, `synth_glm()`)
+is a Track A tool — inference from a differentially private release must also
+account for DP noise and is out of scope here.

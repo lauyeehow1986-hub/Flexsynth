@@ -45,10 +45,10 @@ dependence between factor variables is checked, not just numeric ones.
 tell real from synthetic records; when they are indistinguishable the
 propensity mean squared error sits near its null expectation, so the
 logistic model's \code{ratio} is near 1 (larger means more distinguishable).
-This is an in-sample, row-level diagnostic: the default logistic model has main
-effects only, and repeated rows in longitudinal data are not treated as
-independent inferential evidence. CART does not have an analytic null ratio.
-Treat all results as descriptive rather than hypothesis tests.
+This is an in-sample, row-level diagnostic: the default logistic model has
+main effects only, and repeated rows in longitudinal data are not treated
+as independent inferential evidence. CART does not have an analytic null
+ratio. Treat all results as descriptive rather than hypothesis tests.
 }
 
 If \code{real} and \code{syn} are named lists (or \code{syn} is a \code{synth_linked_result}),

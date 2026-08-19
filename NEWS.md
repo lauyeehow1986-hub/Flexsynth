@@ -1,11 +1,42 @@
+# flexsynth 0.2.1
+
+## Statistical and disclosure-risk corrections
+
+* Linked disclosure diagnostics now propagate a per-table holdout into each
+  membership-inference analysis. Quasi-identifier row keys use collision-safe,
+  length-prefixed encoding rather than delimiter concatenation.
+
+* TCAP now compares key-conditioned attribution with the marginal attacker on
+  the same covered records. The previous all-record marginal remains available
+  as `baseline_unconditional`, and coverage / covered counts remain explicit.
+
+* Logistic pMSE calibration now uses the fitted complete-case sample size and
+  effective model rank. The correlation diagnostic now reports the true
+  full-matrix Frobenius norm rather than the norm of one triangle.
+
+* Custom pooled-analysis variances are aligned by term name. Non-numeric,
+  non-finite, negative, duplicated or mismatched estimate / variance contracts
+  now fail explicitly, as do estimate comparisons with no common terms.
+
+## Documentation and release engineering
+
+* README, package metadata, vignettes and help now distinguish descriptive
+  diagnostics from safety guarantees and published pooling rules from universal
+  inferential validity. The supported structural scope and external governance
+  checks for a differentially private release are stated explicitly.
+
+* Source builds exclude repository and check artifacts. Release metadata and
+  CRAN helpers now target 0.2.1, and CI includes R-devel and oldrel-1 on Ubuntu
+  in addition to release R on Ubuntu, macOS and Windows.
+
 # flexsynth 0.2.0
 
 ## New features
 
-* **Valid inference from synthetic data.** `pool_synth()` fits an analysis on
+* **Pooled inference from synthetic data.** `pool_synth()` fits an analysis on
   each of the `m` synthetic datasets and combines the results with a standard
-  error that reflects the extra variability synthesis introduces — a single
-  synthetic dataset analysed naively gives standard errors that are too small.
+  error that accounts for between-synthesis variation, which an analysis of a
+  single synthetic dataset cannot estimate.
   Two fully-synthetic combining rules are provided (`rule=`): the large-sample
   synthpop estimators of Raab, Nowok & Dibben (2016) (default, matching
   `synthpop::summary.fit.synds`) and the classic Reiter (2003) estimator. The
@@ -72,18 +103,6 @@
   nested data with subject-level covariates.
 
 ## Bug fixes
-
-* Disclosure diagnostics now propagate per-table holdouts through linked input,
-  use collision-safe quasi-identifier keys, and compare TCAP against the
-  marginal baseline on the same covered records. The unconditional marginal
-  baseline remains available as `baseline_unconditional`.
-
-* Diagnostic pMSE calibration now uses the fitted complete-case sample size and
-  effective logistic-model rank; the reported correlation Frobenius distance
-  now covers both triangles of the symmetric matrix.
-
-* Custom pooled-analysis variance vectors are aligned by term name and invalid,
-  negative, non-finite, or mismatched analysis results now fail explicitly.
 
 * **`method = "norm"` / `"normrank"` no longer crash on missing data.** The
   linear-model fit dropped `NA` rows via `model.matrix()` while keeping the

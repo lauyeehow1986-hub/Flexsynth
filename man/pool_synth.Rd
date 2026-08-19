@@ -2,7 +2,7 @@
 % Please edit documentation in R/pool.R
 \name{pool_synth}
 \alias{pool_synth}
-\title{Valid inference from synthetic data (pooled analysis)}
+\title{Pooled inference from synthetic data}
 \usage{
 pool_synth(
   object,
@@ -38,11 +38,11 @@ A \code{flexsynth_pool} object; \verb{$estimates} is a data frame with \code{ter
 \description{
 Fit an analysis on each of the \code{m} synthetic datasets in a \code{\link[=synth]{synth()}} result
 and combine the results into one estimate whose standard error reflects the
-extra variability that synthesis introduces. A naive analysis of a single
-synthetic dataset generally reports standard errors that are too small. These
-functions implement published fully-synthetic combining rules; their
-large-sample calibration still depends on the estimand, synthesis model,
-sample size, and analysis assumptions.
+extra variability that synthesis introduces. An analysis of a single
+synthetic dataset does not estimate between-synthesis variation, so its usual
+standard errors can be miscalibrated. These functions implement published
+fully-synthetic combining rules; their large-sample calibration still depends
+on the estimand, synthesis model, sample size, and analysis assumptions.
 }
 \details{
 \code{analysis} is run once per synthetic dataset and must return either a fitted

@@ -1,17 +1,17 @@
 Package: flexsynth
 Type: Package
 Title: Flexible Synthetic Data for Nested, Longitudinal and Linked Multi-Table Data
-Version: 0.2.0
+Version: 0.2.1
 Authors@R: person(given = "Yee How", family = "Lau",
     email = "lauyeehow1986@gmail.com", role = c("aut", "cre"))
-Description: Generates high-quality synthetic data from real datasets of any
-    structure, with native long-format support for nested, longitudinal and
-    multi-table linked data (for example patients, admissions, procedures and
-    labs linked by identifiers). A high-utility sequential-synthesis engine is
-    the default; an opt-in differentially private track provides a formal
-    (epsilon, delta) guarantee at person level for governed data release.
-    Synthetic output is not anonymisation: honest disclosure-risk diagnostics
-    are provided so residual risk can be judged.
+Description: Generates utility-oriented synthetic data for supported flat,
+    nested, longitudinal and tree-linked multi-table designs, including patients,
+    admissions, procedures and laboratory results linked by identifiers. The
+    default engine uses sequential conditional synthesis; an opt-in
+    differentially private engine implements person-level (epsilon, delta)
+    mechanisms and records their budget accounting. Synthetic output is not
+    anonymisation. Empirical utility and disclosure-risk diagnostics are
+    descriptive and do not by themselves establish that a release is safe.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
