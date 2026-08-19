@@ -30,8 +30,9 @@ engine; Track B is the opt-in differentially private engine.
       autocorrelation across visits is preserved.
 - [x] Unequal-length units supported; flat / subject-baseline behaviour
       unchanged.
-- Future: covariate-conditioned counts and a fully order-consistent positional
-  index model (current count model matches the empirical size distribution).
+- [x] Optional covariate-conditioned count model: synthesise unit-level
+      covariates first, then draw each unit's size from a CART count model.
+- Future: a fully order-consistent positional index model.
 
 ## Phase 3 — linked multi-table engine (Track A)  *(done)*
 - [x] Table hierarchy inferred from `keys` (a table is a child of the table
@@ -66,15 +67,17 @@ engine; Track B is the opt-in differentially private engine.
   single-table only); constraint-aware value repair instead of pure rejection.
 
 ## Phase 5 — diagnostics / utility / safety  *(done)*
-- [x] `diagnose()` — utility diagnostics (univariate KS / total-variation
-      distance, correlation-matrix difference, propensity pMSE with a null-ratio)
-      plus a base-graphics `plot()` method; dispatches over lists of tables.
+- [x] `diagnose()` — descriptive utility diagnostics (univariate KS /
+      total-variation distance, numeric correlation-matrix difference,
+      categorical association difference, and in-sample row-level propensity
+      pMSE) plus a base-graphics `plot()` method; dispatches over lists of tables.
 - [x] `disclosure_risk()` — replicated uniques, distance-to-closest-record (with
       a real-to-real baseline), and an optional `holdout`-based
       membership-inference check (AUC / attacker advantage); dispatches over
       lists of tables.
-- [x] Three vignettes: getting started · nested / longitudinal · multi-table
-      linked cardiac (built pandoc-free with `litedown`).
+- [x] Five vignettes: getting started · pooled inference / TCAP · nested /
+      longitudinal · multi-table linked cardiac · differential privacy (built
+      pandoc-free with `litedown`).
 - [x] Attribute disclosure through TCAP, including matched-record coverage and
       a like-for-like covered-record marginal baseline.
 - Future: diagnostics that model nested dependence explicitly rather than
@@ -349,7 +352,7 @@ engine; Track B is the opt-in differentially private engine.
       examples and CI / lifecycle / license badges (the stale "Phase 0 scaffold,
       engine not implemented" notice is gone).
 - [x] `pkgdown` site config (`_pkgdown.yml`) with a grouped reference index and
-      an articles listing for the four vignettes.
+      an articles listing for all five vignettes.
 - [x] CRAN-readiness: `cran-comments.md` added; standard `R CMD check` is clean
       (0/0/0) with vignettes built. The `--as-cran` NOTEs (new submission; a
       local no-pandoc note; a transient empty `NULL` directory created only by
@@ -361,8 +364,19 @@ engine; Track B is the opt-in differentially private engine.
   \eqn{\delta}) through a `domain_frac` budget slice), and `"data"` (legacy,
   warned, unaccounted). Categoricals must be public (`factor`/`logical`) in the
   rigorous modes.
-- Future: linked / longitudinal DP `character` discovery (flat `synth()` set-union
-  shipped in 0.1.0; nested and multi-table paths still require public factor levels);
-  the further DP extensions listed under Phase 7; and CRAN submission — the `0.1.0`
-  API is now tagged, pending a clean full `--as-cran` run once the local TeX/pandoc
-  toolchain is completed (Courier font metric + pandoc + qpdf).
+- Future: linked / longitudinal DP `character` discovery (flat `synth()`
+  set-union shipped in 0.1.0; nested and multi-table paths still require public
+  factor levels) and the further DP extensions listed under Phase 7.
+
+## Phase 9 — 0.2.x release hardening  *(in progress)*
+
+- [x] Multiple-synthesis pooling and analysis-specific utility comparison.
+- [x] Missing-data modelling, conditional row counts, categorical-association
+      diagnostics, and TCAP attribute-disclosure diagnostics.
+- [x] 0.2.1 statistical corrections: collision-safe disclosure keys,
+      per-table linked holdouts, covered-record TCAP comparison, corrected pMSE
+      calibration and Frobenius norm, and strict pooled-estimator contracts.
+- [x] Documentation distinguishes empirical diagnostics from release-safety
+      guarantees and states the supported structural scope.
+- [ ] Complete every external gate in `docs/release-checklist-0.2.1.md`, publish
+      `v0.2.1`, and submit the matching source to CRAN.

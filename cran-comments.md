@@ -1,38 +1,38 @@
 ## Submission
 
-This is the first CRAN submission of `flexsynth` (version 0.2.0). Versions 0.1.0
-through 0.1.2 were tagged on GitHub only. 0.2.0 adds valid-inference helpers
-(`pool_synth()`, `synth_glm()`, `compare_estimates()`), a missing-data model,
-attribute-disclosure (TCAP) risk, default continuous smoothing, a
-covariate-conditional row-count model, and a categorical-association diagnostic;
-see NEWS.md for the full list.
+This is the first CRAN submission of `flexsynth` (version 0.2.1). Previous
+versions were distributed through GitHub only.
+
+The package provides utility-oriented synthesis for supported flat, nested,
+longitudinal and tree-linked multi-table data, plus an opt-in person-level
+differentially private engine. Version 0.2.1 includes multiple-synthesis pooling,
+missing-data and conditional-count models, categorical-association and TCAP
+diagnostics, and corrections to linked holdout handling, key encoding, TCAP
+comparison, pMSE calibration, the correlation-matrix norm and custom-estimator
+validation. See NEWS.md for details.
 
 ## R CMD check results
 
-Standard `R CMD check` (with vignettes built) passes with **Status: OK** — 0
-errors, 0 warnings, 0 notes — on the development platform (Windows 11, R 4.5.2,
-full TeX/pandoc/qpdf toolchain, with `partykit` installed) and in CI
-(`.github/workflows/R-CMD-check.yaml`, ubuntu/macOS/windows).
-
-Under `R CMD check --as-cran` any NOTEs are benign:
+On Windows 11 with R 4.5.1, the source tarball passes
+`R CMD check --as-cran --no-manual` with 0 errors, 0 warnings and 1 NOTE:
 
 1. **New submission.** This is the first submission of `flexsynth` to CRAN.
 
-2. **Possibly misspelled words in DESCRIPTION** — "anonymisation". This is the
-   intended British-English spelling (recorded in `inst/WORDLIST`).
+The same run with PDF-manual checking enabled reaches the manual step with all
+earlier checks clean, but the local environment does not have `pdflatex`.
+Vignettes rebuild and the HTML manual check passes. PDF-manual confirmation is
+therefore an external release gate rather than represented as a completed local
+check.
 
-3. **`checking for non-standard things in the check directory ... NOTE`** (local
-   Windows only) — an empty directory `'NULL'` created by the `--as-cran` example
-   driver, not by any package code; it is removed before the run completes and
-   never appears in standard `R CMD check`, CI, or on win-builder.
+The package test suite reports 965 passes, 0 failures and 2 skips. Both skips
+exercise optional reproducible PSOCK parallelism, which is unavailable to the
+test process on this local Windows configuration; serial behaviour is covered.
 
 ## Test environments
 
-* Windows 11, R 4.5.2 (local; full toolchain — TeX Live, pandoc 3.10, qpdf 12;
-  partykit installed so the full suite runs)
-* win-builder: R-devel and R-release
-* GitHub Actions: ubuntu-latest (release, devel, oldrel-1), macOS-latest,
-  windows-latest (via r-lib/actions)
+* Windows 11 x64 (build 26200), R 4.5.1 (local source-tarball check)
+* GitHub Actions and win-builder results will be added only after the final
+  release commit has completed those services
 
 ## Downstream dependencies
 

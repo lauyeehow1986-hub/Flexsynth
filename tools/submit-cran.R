@@ -16,15 +16,16 @@
 #   * win-builder R-devel AND R-release both returned clean
 #     (Status OK or only the benign NOTEs in cran-comments.md);
 #   * `R CMD check --as-cran` is clean locally;
-#   * NEWS.md, cran-comments.md and the DESCRIPTION Version all say 0.2.0;
-#   * the v0.2.0 tag / GitHub release are published;
-#   * it is on or after 2026-08-19 (CRAN was offline before then).
+#   * NEWS.md, cran-comments.md and the DESCRIPTION Version agree;
+#   * the matching v<Version> tag / GitHub release are published.
 #
 # After you run it: watch the maintainer inbox for the CRAN confirmation email
 # and click the confirmation link. Then wait for the CRAN incoming checks.
 # ---------------------------------------------------------------------------
 
-pkg <- "C:/Users/lauye/Downloads/flexsynth"   # adjust if the checkout moved
+pkg <- normalizePath(".", winslash = "/", mustWork = TRUE)
+if (!file.exists(file.path(pkg, "DESCRIPTION")))
+  stop("Run this script from the flexsynth package root.")
 
 if (!requireNamespace("devtools", quietly = TRUE))
   stop("Install 'devtools' first: install.packages('devtools')")
@@ -36,6 +37,14 @@ if (!interactive())
 ## Show what is about to go up, and surface cran-comments.md so you can eyeball
 ## it one last time (CRAN reads it).
 desc <- read.dcf(file.path(pkg, "DESCRIPTION"))
+version <- unname(desc[, "Version"])
+news_heading <- grep("^# flexsynth ", readLines(file.path(pkg, "NEWS.md")),
+                     value = TRUE)[1L]
+if (!identical(news_heading, paste("# flexsynth", version)))
+  stop("The first NEWS.md heading does not match DESCRIPTION Version ", version, ".")
+cran_comments <- readLines(file.path(pkg, "cran-comments.md"))
+if (!any(grepl(paste("version", version), cran_comments, fixed = TRUE)))
+  stop("cran-comments.md does not name DESCRIPTION Version ", version, ".")
 maintainer <- local({
   cols <- colnames(desc)
   if ("Maintainer" %in% cols) return(desc[, "Maintainer"])
@@ -50,11 +59,10 @@ maintainer <- local({
 message("Package    : ", desc[, "Package"])
 message("Version    : ", desc[, "Version"])
 message("Maintainer : ", maintainer)
-message("Date       : ", format(Sys.Date()),
-        if (Sys.Date() < as.Date("2026-08-19"))
-          "  <-- WARNING: CRAN was offline until 2026-08-19" else "")
+message("Date       : ", format(Sys.Date()))
+message("Expected tag: v", version)
 message("\n--- cran-comments.md ---")
-cat(readLines(file.path(pkg, "cran-comments.md")), sep = "\n")
+cat(cran_comments, sep = "\n")
 message("\n------------------------\n")
 
 ## This will ask you to confirm, then upload and trigger the CRAN confirmation
